@@ -65,6 +65,36 @@ export type KeeperHubWorkflow = WorkflowDefinition & {
   updatedAt?: string;
 };
 
+/** KeeperHub's risk vocabulary, worst last. */
+export const RISK_LEVELS = ["low", "medium", "high", "critical"] as const;
+export type RiskLevel = (typeof RISK_LEVELS)[number];
+
+export type RiskAssessmentRequest = {
+  calldata: Hex;
+  chainId: number;
+  contractAddress?: Address;
+  senderAddress?: Address;
+  /** native value in wei, as a decimal string */
+  value?: string;
+};
+
+export type RiskAssessment = {
+  level: RiskLevel | null;
+  /** 0 safe .. 100 critical */
+  score: number | null;
+  factors: string[];
+  decodedFunction: string | null;
+  reasoning: string | null;
+  /**
+   * True when the assessor did not actually reach a verdict — its AI backend failed and
+   * it returned a fail-closed default. `level` is then a placeholder, not a finding, and
+   * must not be used to refuse a payment.
+   */
+  advisory: boolean;
+  error: string | null;
+  raw: unknown;
+};
+
 export type ContractCallRequest = {
   contractAddress: Address;
   chainId: number;
@@ -387,6 +417,48 @@ export class KeeperHubClient {
   // ---------------------------------------------------------------------------
   // direct execution (dry run + broadcast share ONE request body)
   // ---------------------------------------------------------------------------
+
+  /**
+   * KeeperHub's pre-signature risk read on a piece of calldata.
+   *
+   * The verdict is advisory, and deliberately so. KeeperHub's assessor is fail-closed:
+   * when its AI backend is unavailable it returns `riskLevel: "high"`, score 70, with a
+   * factor saying the analysis failed. That is the right default for a human reading a
+   * warning and the wrong one for an automatic gate — blocking on it would refuse every
+   * payment whenever an upstream service is down. `advisory` marks exactly that case, so
+   * a caller can warn on it and refuse only on a verdict the assessor actually reached.
+   */
+  async assessRisk(req: RiskAssessmentRequest): Promise<RiskAssessment> {
+    const { json } = await this.request("assess_risk", "/execute/node", {
+      method: "POST",
+      body: {
+        actionType: "web3/assess-risk",
+        config: {
+          calldata: req.calldata,
+          ...(req.contractAddress ? { contractAddress: req.contractAddress } : {}),
+          value: req.value ?? "0",
+          chain: String(req.chainId),
+          ...(req.senderAddress ? { senderAddress: req.senderAddress } : {}),
+        },
+      },
+      acceptStatuses: [400],
+    });
+    const result = asRecord(asRecord(json).result);
+    const factors = (Array.isArray(result.factors) ? result.factors : []).map(String);
+    const level = str(result.riskLevel)?.toLowerCase() ?? null;
+    const failedUpstream = factors.some((f) => /analysis failed|assessment failed|timed out/i.test(f));
+    return {
+      level: (level as RiskLevel | null) ?? null,
+      score: result.riskScore === undefined || result.riskScore === null ? null : Number(result.riskScore),
+      factors,
+      decodedFunction: str(result.decodedFunction),
+      reasoning: str(result.reasoning),
+      /** the assessor did not reach a verdict; treat `level` as a fail-closed default */
+      advisory: result.success !== true || failedUpstream,
+      error: str(result.error),
+      raw: json,
+    };
+  }
 
   async simulateContractCall(req: ContractCallRequest): Promise<SimulationResult> {
     // a simulated revert is a 400 with a structured body, an unfunded wallet a 400
