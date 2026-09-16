@@ -114,7 +114,11 @@ export function executionLayer(store: Store): { relayer: Executor; keeperhub: Ke
     };
   }
   const client = new keeperhub.KeeperHubClient(config);
-  const sponsorPk = process.env.ATTESTPAY_7702_SPONSOR_PK?.trim() as Hex | undefined;
+  // Accept the key with or without the 0x prefix, the way the Attestcoin key is read
+  // (attestcoin/config.ts). Operators copy these between vars, and a bare-hex key would
+  // otherwise fail deep inside viem with "invalid private key", far from the cause.
+  const rawSponsorPk = process.env.ATTESTPAY_7702_SPONSOR_PK?.trim();
+  const sponsorPk = rawSponsorPk ? ((rawSponsorPk.startsWith("0x") ? rawSponsorPk : `0x${rawSponsorPk}`) as Hex) : undefined;
   const executor = new keeperhub.KeeperHubExecutor({
     config,
     client,
