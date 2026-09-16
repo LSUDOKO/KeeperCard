@@ -8,3 +8,4 @@ export * from "./telemetry";
 export * from "./executor";
 export * from "./bootstrap";
 export * from "./workflows";
+export * from "./anchor";
