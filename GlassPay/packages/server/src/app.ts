@@ -17,6 +17,7 @@ import { sellerRoutes } from "./seller/routes";
 import { stripeRoutes } from "./stripe/routes";
 import { shopRoutes } from "./shop/routes";
 import { publicPassportRoutes } from "./attestcoin/credit-routes";
+import { keeperhubHookRoutes } from "./keeperhub/hooks";
 
 export function createApp(deps: AppDeps): Hono {
   const app = new Hono();
@@ -83,6 +84,9 @@ export function createApp(deps: AppDeps): Hono {
 
   app.route("/", oauthRoutes(deps, oauth));
   app.route("/", mcpRoutes(deps, oauth));
+  // KeeperHub workflow callbacks: shared-secret auth, mounted BEFORE /api so the
+  // dashboard's session/admin middleware never sees (or rejects) them
+  app.route("/api/keeperhub/hooks", keeperhubHookRoutes(deps));
   app.route("/api", apiRoutes(deps, oauth));
   app.route("/facilitator", facilitatorRoutes(deps));
   app.route("/", stripeRoutes(deps));
