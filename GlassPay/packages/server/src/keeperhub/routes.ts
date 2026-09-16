@@ -81,6 +81,28 @@ export function presentPlan(p: keeperhub.SpendPlanRow) {
   };
 }
 
+/**
+ * KeeperHub's risk verdict, without the raw payload and with the one distinction that
+ * matters stated in words: `available: false` means the assessor never reached a
+ * verdict, so `level` is its fail-closed default rather than a finding about this
+ * calldata. Callers that blur the two either cry wolf or refuse every payment whenever
+ * an upstream AI service is down.
+ */
+export function presentRisk(r: keeperhub.RiskAssessment | null | undefined) {
+  if (!r) return null;
+  return {
+    available: !r.advisory,
+    level: r.level,
+    score: r.score,
+    decoded_function: r.decodedFunction,
+    factors: r.factors,
+    reasoning: r.reasoning,
+    note: r.advisory
+      ? "KeeperHub's risk assessor did not return a verdict (its analysis failed); this level is a fail-closed default, not a finding about this payment"
+      : null,
+  };
+}
+
 export type ScopedUser = (c: Parameters<Handle>[0]) => string;
 
 export function keeperhubRoutes(deps: AppDeps, ownedCard: OwnedCardResolver, handle: Handle, scopedUser: ScopedUser): Hono<ApiEnv> {
