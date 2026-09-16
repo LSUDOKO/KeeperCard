@@ -24,6 +24,7 @@ import {
   keeperhubDisabledReason,
   parseKeeperHubRequestId,
   parsePlanContext,
+  attestAnchors,
   workflowKeyFor,
   type KeeperHubConfig,
 } from "../src/keeperhub";
@@ -642,5 +643,94 @@ describe("risk assessment", () => {
     });
     expect(r.advisory).toBe(true);
     expect(r.error).toBe("upstream down");
+  });
+});
+
+describe("anchor attestation", () => {
+  const ANCHOR = "0x881c55745372DfCB7dEC9B13F499b167164e2121" as Address;
+  const ONCHAIN_TX = "0x" + "a1".repeat(32);
+  const LOCAL_ONLY_TX = "0x" + "b2".repeat(32);
+
+  function world(events: Array<{ hash: string; amount: string }>) {
+    const store = new Store(":memory:");
+    const kh = new KeeperHubStore(store.db);
+    const client = new KeeperHubClient(cfg(), {
+      fetch: (async () =>
+        new Response(
+          JSON.stringify({
+            status: "completed",
+            result: {
+              success: true,
+              fromBlock: 100,
+              toBlock: 200,
+              eventCount: events.length,
+              events: events.map((e, i) => ({
+                blockNumber: 150 + i,
+                transactionHash: e.hash,
+                logIndex: 0,
+                args: { cardId: "0xcard", payer: WALLET, merchant: MERCHANT, amount: e.amount, memo: "m" },
+              })),
+            },
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        )) as unknown as typeof fetch,
+    });
+    return { kh, client };
+  }
+
+  const anchorRow = (txHash: string) => ({
+    execution_id: `ex_${txHash.slice(2, 10)}`,
+    surface: "direct" as const,
+    workflow_key: "anchor" as const,
+    workflow_id: null,
+    action: "anchor" as const,
+    card_id: null,
+    charge_id: "ch1",
+    digest: null,
+    status: "completed" as const,
+    tx_hash: txHash as Hex,
+    chain_id: 11155111,
+    error: null,
+  });
+
+  test("a local row the chain confirms is matched", async () => {
+    const { kh, client } = world([{ hash: ONCHAIN_TX, amount: "1000000" }]);
+    kh.record(anchorRow(ONCHAIN_TX));
+    const r = await attestAnchors({ client, store: kh, anchorAddress: ANCHOR });
+    expect(r.matched.length).toBe(1);
+    expect(r.unwitnessed.length).toBe(0);
+    expect(r.unrecorded.length).toBe(0);
+    expect(r.matched[0]!.amount).toBe("1000000");
+  });
+
+  test("a local claim with no event in the window is unwitnessed, and the window is reported", async () => {
+    const { kh, client } = world([]);
+    kh.record(anchorRow(LOCAL_ONLY_TX));
+    const r = await attestAnchors({ client, store: kh, anchorAddress: ANCHOR });
+    expect(r.unwitnessed.length).toBe(1);
+    // the caller must be able to see the scan was bounded before calling this a lie
+    expect(r.from_block).toBe(100);
+    expect(r.to_block).toBe(200);
+  });
+
+  test("an on-chain anchor AttestPay never recorded is surfaced", async () => {
+    const { kh, client } = world([{ hash: ONCHAIN_TX, amount: "500000" }]);
+    const r = await attestAnchors({ client, store: kh, anchorAddress: ANCHOR });
+    expect(r.unrecorded.length).toBe(1);
+    expect(r.unrecorded[0]!.tx_hash).toBe(ONCHAIN_TX as Hex);
+  });
+
+  test("a failed chain read reports an error rather than an empty all-clear", async () => {
+    const kh = new KeeperHubStore(new Store(":memory:").db);
+    const client = new KeeperHubClient(cfg(), {
+      fetch: (async () =>
+        new Response(JSON.stringify({ result: { success: false, error: "rpc down" } }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        })) as unknown as typeof fetch,
+    });
+    const r = await attestAnchors({ client, store: kh, anchorAddress: ANCHOR });
+    expect(r.error).toBe("rpc down");
+    expect(r.matched.length).toBe(0);
   });
 });
