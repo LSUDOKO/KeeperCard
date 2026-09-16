@@ -41,6 +41,7 @@ import type { AppDeps } from "../deps";
 import { registerTermsInBackground, revokeTermsInBackground, spendDeps, spendKey } from "../deps";
 import { registerAttestcoinTools } from "./attestcoin-tools";
 import { registerCreditTools } from "./credit-tools";
+import { registerKeeperHubTools } from "./keeperhub-tools";
 import { recentFiatDecision } from "../stripe/decisions";
 
 const SERVER_INFO = { name: "attestpay", version: "0.18.0" };  // Surfaced to clients at initialize. Claude Code's tool search (default-on since mid-2026)
@@ -49,6 +50,7 @@ const SERVER_INFO = { name: "attestpay", version: "0.18.0" };  // Surfaced to cl
     "remit is the agent's spending card: a scoped, revocable spending authority granted by the card owner. The connection itself is the card; it holds no funds of its own and every action is checked against the card's terms (per-payment cap, period budget, expiry, allowlists).",
     "Tools: `card` reports status, terms and remaining budget (check it before the first spend). `pay` sends USDC to a recipient or settles an x402 payment requirement. `paid_fetch` fetches an HTTP resource and pays its 402 challenge automatically. `execute` calls an allowlisted contract within the card's contract terms. `issue_subcard` mints a narrower child card for a sub-agent and returns its connection URL (treat it as a secret). `revoke_subcard` kills a child card and its descendants instantly. On fiat-linked cards, `fiat_pay` buys over Visa rails (simulated, test mode) from the same budget, `card_credentials` reveals the linked test Visa, `shop_products` lists the Stripe product catalog, and `shop_buy` purchases a product from the catalog using the linked Visa.",
     "With cross-chain verification on, the card also has `verify_payment` (proof pipeline stage), `payment_receipt` (Base + anchor + Creditcoin receipt), `credit_score` (verified history on Creditcoin) and `cross_chain_status` (attestation lag, queue health). Verification takes minutes; a recent unverified payment is waiting, not broken. With credit on: `credit_lines`, `draw_credit` (the lender's card pays this account), `repay_credit`, `dispute_payment`, and `credit_passport` (signed on-chain standing).",
+    "Execution runs on KeeperHub: `keeperhub_dry_run` composes and simulates a payment without touching the chain and returns a plan_id; show it to your user, then `pay` with that plan_id executes exactly that plan. `keeperhub_execution_status` and `keeperhub_audit_trail` show how KeeperHub landed each payment.",
     "A frozen card still answers `card` but refuses spends. Refusals name the violated term; read the message before retrying.",
   ].join("\n\n");
 
@@ -136,7 +138,11 @@ export function cardUrl(secret: string): string {
 // ---------------------------------------------------------------------------
 
 export function buildMcpServer(deps: AppDeps, card: CardRow): McpServer {
-  const server = new McpServer(SERVER_INFO, { instructions: INSTRUCTIONS });
+  const instructions =
+    deps.relayer.kind === "keeperhub"
+      ? INSTRUCTIONS
+      : INSTRUCTIONS.split("\n\n").filter((p) => !p.startsWith("Execution runs on KeeperHub")).join("\n\n");
+  const server = new McpServer(SERVER_INFO, { instructions });
   const sd: SpendDeps = spendDeps(deps);
   const now = () => Math.floor(Date.now() / 1000);
   // serialize money-moving sections per card TREE: concurrent spends of the same
@@ -197,27 +203,36 @@ export function buildMcpServer(deps: AppDeps, card: CardRow): McpServer {
       {
         title: "Pay USDC",
         description:
-          "Send USDC on Base to a recipient address, within this card's limits. Blocks until the payment confirms on-chain (seconds). Refusals are typed (over_period_limit, merchant_not_allowed, ...) — relay them honestly to your user. Use idempotency_key to make retries safe.",
+          deps.relayer.kind === "keeperhub"
+            ? "Send USDC on Base to a recipient address, within this card's limits, executed by KeeperHub. Either pass plan_id from `keeperhub_dry_run` to execute exactly the plan your user reviewed, or pass to + amount (the payment is still dry-run through KeeperHub before it executes). Blocks until KeeperHub reports the transaction verified on-chain. Refusals are typed (over_period_limit, merchant_not_allowed, ...) — relay them honestly. Use idempotency_key to make retries safe."
+            : "Send USDC on Base to a recipient address, within this card's limits. Blocks until the payment confirms on-chain (seconds). Refusals are typed (over_period_limit, merchant_not_allowed, ...) — relay them honestly to your user. Use idempotency_key to make retries safe.",
         inputSchema: {
-          to: z.string().regex(/^0x[0-9a-fA-F]{40}$/).describe("recipient address"),
-          amount: z.string().regex(/^\d+(\.\d{1,6})?$/).describe("USDC amount, decimal string, e.g. \"1.50\""),
+          to: z.string().regex(/^0x[0-9a-fA-F]{40}$/).optional().describe("recipient address (omit when passing plan_id)"),
+          amount: z.string().regex(/^\d+(\.\d{1,6})?$/).optional().describe("USDC amount, decimal string, e.g. \"1.50\" (omit when passing plan_id)"),
           memo: z.string().max(280).optional().describe("what this payment is for"),
           idempotency_key: z.string().max(128).optional().describe("same key -> same charge (safe retries)"),
+          plan_id: z.string().max(80).optional().describe("execute a reviewed keeperhub_dry_run plan byte-for-byte"),
         },
         annotations: { destructiveHint: true, idempotentHint: true, openWorldHint: false },
       },
-      async (args: { to: string; amount: string; memo?: string; idempotency_key?: string }) =>
+      async (args: { to?: string; amount?: string; memo?: string; idempotency_key?: string; plan_id?: string }) =>
         run("pay", card.id, () =>
-          locked(() =>
-            spend(sd, card.id, {
+          locked(async () => {
+            if (args.plan_id) {
+              return spend(sd, card.id, { kind: "pay", mode: "pay", planId: args.plan_id });
+            }
+            if (!args.to || !args.amount) {
+              throw new RefusalError("invalid_terms", "pass plan_id, or both to and amount");
+            }
+            return spend(sd, card.id, {
               kind: "pay",
               mode: "pay",
               to: args.to as Address,
               amountAtoms: usdcToAtoms(args.amount),
               memo: args.memo,
               idempotencyKey: args.idempotency_key,
-            }),
-          ),
+            });
+          }),
         ),
     );
   }
@@ -628,6 +643,10 @@ export function buildMcpServer(deps: AppDeps, card: CardRow): McpServer {
   // Credit lines, disputes and the passport ride the same gate: offered only when
   // their contracts are configured, so the tool list stays an honest capability list.
   registerCreditTools(server, deps, card, run);
+
+  // KeeperHub: dry run -> reviewed plan -> exact execution, plus execution status and
+  // the merged audit trail. Only when this deployment executes through KeeperHub.
+  registerKeeperHubTools(server, deps, card, run, sd, locked);
 
   return server;
 }
