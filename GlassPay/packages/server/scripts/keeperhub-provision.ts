@@ -3,6 +3,14 @@
 //   bun run keeperhub:provision              create/update by name, print env lines
 //   bun run keeperhub:provision --dry-run    print the workflow JSON, touch nothing
 //   bun run keeperhub:provision --out f.json also write ids + definitions to a file
+//   bun run keeperhub:provision --no-hooks   force callback-free workflows (free plan)
+//   bun run keeperhub:provision --hooks      force callbacks (assume Pro)
+//
+// Callbacks are probed, not assumed: KeeperHub gates the `HTTP Request` action behind
+// the Pro plan and rejects a whole workflow containing one with 402 upgrade_required.
+// On a free org the pay/credit/anchor workflows are built without their reporting node
+// and AttestPay polls for the execution record instead; recovery and settle are skipped
+// entirely, because a schedule plus a callback is all they ever were.
 //
 // Idempotent: a workflow whose name already exists in the organization is PATCHed in
 // place (same id, so KEEPERHUB_WORKFLOW_* never changes); anything missing is created.
@@ -34,11 +42,29 @@ let hookSecret = env("KEEPERHUB_HOOK_SECRET");
 const generatedSecret = !hookSecret;
 if (!hookSecret) hookSecret = `khs_${Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString("base64url")}`;
 
+// KeeperHub gates the `HTTP Request` action behind the Pro plan, and a workflow that
+// contains one is rejected wholesale with 402 upgrade_required. Ask the org what it may
+// actually use, rather than building workflows the API will refuse. --hooks / --no-hooks
+// override the probe (useful for a dry run, which never reaches the API).
+const hooksFlag = argv.has("--hooks") ? true : argv.has("--no-hooks") ? false : null;
+
+const config = keeperhub.keeperhubConfig() ?? die("KEEPERHUB_API_KEY is not set (create an org key at app.keeperhub.com → Settings → API Keys)");
+const client = new keeperhub.KeeperHubClient(config);
+
+let hooksEnabled = hooksFlag ?? false;
+let planLabel = hooksFlag === null ? "unknown" : `forced by --${hooksFlag ? "" : "no-"}hooks`;
+if (hooksFlag === null && !dryRun) {
+  const features = await client.features();
+  hooksEnabled = features.usableFeatureIds.has(keeperhub.HTTP_REQUEST_FEATURE_ID);
+  planLabel = features.plan;
+}
+
 const anchor = env("ATTESTPAY_PAYMENT_ANCHOR_ADDRESS");
 const defs = keeperhub.buildWorkflowDefinitions({
   chainId: CHAIN_ID,
   publicBaseUrl,
   hookSecret,
+  hooksEnabled,
   paymentAnchorAddress: anchor && isAddress(anchor) ? (anchor as Address) : null,
   gasLimitMultiplier: env("KEEPERHUB_GAS_LIMIT_MULTIPLIER") ?? "1.5",
   schedules: { recovery: env("KEEPERHUB_RECOVERY_CRON"), settle: env("KEEPERHUB_SETTLE_CRON") },
@@ -59,10 +85,12 @@ if (dryRun) {
   process.exit(0);
 }
 
-const config = keeperhub.keeperhubConfig() ?? die("KEEPERHUB_API_KEY is not set (create an org key at app.keeperhub.com → Settings → API Keys)");
-const client = new keeperhub.KeeperHubClient(config);
-
-console.log(`KeeperHub provisioning · ${config.apiBase} · chain ${CHAIN_ID} · hooks → ${publicBaseUrl}`);
+console.log(`KeeperHub provisioning · ${config.apiBase} · chain ${CHAIN_ID} · plan ${planLabel}`);
+console.log(
+  hooksEnabled
+    ? `✓ HTTP Request available · workflows call back to ${publicBaseUrl}`
+    : "! HTTP Request is Pro-gated · building callback-free workflows; AttestPay polls KeeperHub instead",
+);
 
 // 1. the chains we execute on must be enabled in KeeperHub
 const chains = await client.listChains();
@@ -87,7 +115,9 @@ for (const key of keeperhub.KEEPERHUB_WORKFLOW_KEYS) {
         ? "ATTESTPAY_PAYMENT_ANCHOR_ADDRESS not set"
         : key === "notify"
           ? "no notification channel configured (KEEPERHUB_*_INTEGRATION_ID / KEEPERHUB_NOTIFY_WEBHOOK_URL)"
-          : "not applicable";
+          : (key === "recovery" || key === "settle") && !hooksEnabled
+            ? "schedule + callback is the whole workflow, and HTTP Request needs Pro; AttestPay keeps its own timer"
+            : "not applicable";
     console.log(`- ${keeperhub.KEEPERHUB_WORKFLOW_NAMES[key]}: skipped (${why})`);
     continue;
   }
