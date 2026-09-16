@@ -62,8 +62,13 @@ export function facilitatorRoutes(deps: AppDeps): Hono {
     accountNonce: deps.spendOverrides?.accountNonce,
   });
 
-  app.get("/supported", (c) =>
-    c.json({
+  app.get("/supported", async (c) => {
+    const onKeeperHub = deps.relayer.kind === "keeperhub";
+    // the address a buyer's leaf delegation must name; null when the executor cannot
+    // resolve it right now (the verify path reports that precisely)
+    const delegate =
+      typeof deps.relayer.delegateAddress === "function" ? await deps.relayer.delegateAddress().catch(() => null) : null;
+    return c.json({
       kinds: [
         {
           x402Version: X402_VERSION,
@@ -71,16 +76,19 @@ export function facilitatorRoutes(deps: AppDeps): Hono {
           network: caip2For(CHAIN_ID),
           extra: {
             assetTransferMethods: ["erc7710"],
-            rail: "1shot-public-relayer",
+            rail: onKeeperHub ? "keeperhub" : "1shot-public-relayer",
             feeToken: "USDC",
-            note: "settles ERC-7710 delegation payments via relayer.1shotapi.com; leaf delegate must be the relayer target",
+            delegate,
+            note: onKeeperHub
+              ? "settles ERC-7710 delegation payments through KeeperHub (dry run, then exact execution); leaf delegate must be the KeeperHub wallet"
+              : "settles ERC-7710 delegation payments via relayer.1shotapi.com; leaf delegate must be the relayer target",
           },
         },
       ],
       extensions: [],
       signers: {},
-    }),
-  );
+    });
+  });
 
   app.post("/verify", async (c) => {
     const body = (await c.req.json().catch(() => ({}))) as WireRequest;
