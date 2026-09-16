@@ -58,6 +58,9 @@ export function Cockpit({
           <Link className={`navlink${here("/app") ? " on" : ""}`} href="/app">
             Cards
           </Link>
+          <Link className={`navlink${here("/keeperhub") ? " on" : ""}`} href="/keeperhub">
+            Execution
+          </Link>
           <Link className={`navlink${here("/settings") ? " on" : ""}`} href="/settings">
             Settings
           </Link>
