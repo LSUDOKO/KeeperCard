@@ -428,10 +428,14 @@ export type KeeperHubExecution = {
 };
 
 export type KeeperHubStats = {
+  total: number;
+  /** keyed by KeeperHubStatus */
+  by_status: Record<string, number>;
+  /** keyed by KeeperHubAction */
+  by_action: Record<string, number>;
   dry_runs: number;
+  /** everything that was not a dry run */
   executions: number;
-  failures: number;
-  retries: number;
 } | null;
 
 export type KeeperHubStatus_ = {

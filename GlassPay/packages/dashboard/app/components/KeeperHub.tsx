@@ -176,10 +176,10 @@ function Status({ status, stats }: { status: KeeperHubStatus_; stats: KeeperHubS
 
       {stats ? (
         <div className="khstats">
+          <Stat n={stats.by_status.completed ?? 0} label="confirmed" />
           <Stat n={stats.executions} label="executed" />
           <Stat n={stats.dry_runs} label="dry runs" />
-          <Stat n={stats.retries} label="retries" />
-          <Stat n={stats.failures} label="failures" bad={stats.failures > 0} />
+          <Stat n={stats.by_status.failed ?? 0} label="failed" bad={(stats.by_status.failed ?? 0) > 0} />
           <span className="khstatsnote">last 24h</span>
         </div>
       ) : null}
