@@ -32,7 +32,7 @@ export function Boot({
         animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
         transition={{ type: "spring", stiffness: 90, damping: 20 }}
       >
-        AttestPay
+        KeeperCard
       </motion.span>
       <motion.svg
         className="bootseal"

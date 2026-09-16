@@ -42,7 +42,7 @@ export default function PassportPage({ params }: { params: Promise<{ address: st
     <main className="narrow">
       <div className="panel">
         <p className="microlbl" style={{ margin: "0 0 6px" }}>
-          AttestPay credit passport
+          KeeperCard credit passport
         </p>
         <h1 style={{ margin: "0 0 12px", fontSize: 20, overflowWrap: "anywhere" }}>{address}</h1>
 
@@ -91,7 +91,7 @@ export default function PassportPage({ params }: { params: Promise<{ address: st
         <div className="panel" style={{ marginTop: 14 }}>
           <h2 style={{ margin: "0 0 6px", fontSize: 15 }}>Signed credential</h2>
           <p className="subnote" style={{ padding: 0 }}>
-            EIP-191 signature over the key-sorted JSON payload by the AttestPay anchorer {shortHex(cred.signer, 6, 4)}. Verify
+            EIP-191 signature over the key-sorted JSON payload by the KeeperCard anchorer {shortHex(cred.signer, 6, 4)}. Verify
             it here, with the SDK, or by recovering the signer yourself.
           </p>
           <div className="cractions">
@@ -145,7 +145,7 @@ export default function PassportPage({ params }: { params: Promise<{ address: st
 
       <p className="subnote" style={{ textAlign: "center" }}>
         <Link href="/" style={{ color: "var(--accent-deep)" }}>
-          AttestPay
+          KeeperCard
         </Link>{" "}
         · agentic spending cards with cross-chain credit history on Creditcoin
       </p>

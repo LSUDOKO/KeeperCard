@@ -170,12 +170,12 @@ submission — so when something stalls, we know which hop."
 **🎥** Split: dashboard Cross-Chain pane · Claude · Creditcoin Blockscout.
 
 **🎙️**
-"AttestPay. An AI agent gets a card its owner controls — and every payment it makes
+"KeeperCard. An AI agent gets a card its owner controls — and every payment it makes
 becomes credit history anyone can verify, on the chain built for credit.
 
 No oracle. No bridge. Just proofs."
 
-**🎥** `github.com/LSUDOKO/AttestPay`
+**🎥** `github.com/LSUDOKO/KeeperCard`
 
 ---
 

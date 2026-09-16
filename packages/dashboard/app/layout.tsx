@@ -13,11 +13,11 @@ const sans = Inter({ weight: ["400", "500", "600", "700"], subsets: ["latin"], v
 const mono = Roboto_Mono({ weight: ["400", "500"], subsets: ["latin"], variable: "--font-mono", display: "swap" });
 
 export const metadata: Metadata = {
-  title: { default: "AttestPay — spending cards for AI agents", template: "%s · AttestPay" },
+  title: { default: "KeeperCard — spending cards for AI agents", template: "%s · KeeperCard" },
   description:
     "Issue scoped, revocable spending cards from your wallet. Any AI agent plugs one in over MCP and pays within your limits; every payment is proven onto Creditcoin.",
   openGraph: {
-    title: "AttestPay — spending cards for AI agents",
+    title: "KeeperCard — spending cards for AI agents",
     description: "Give your agent a card, not your keys. Scoped, revocable, proven cross-chain.",
     type: "website",
   },

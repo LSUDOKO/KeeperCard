@@ -86,7 +86,7 @@ function WebhooksSection({ flash }: { flash: (m: string) => void }) {
     <section className="setsec">
       <h2>Webhooks</h2>
       <p className="lede">
-        Signed POSTs for payments, card changes, proofs, credit and disputes. Header <code>X-AttestPay-Signature: t=…,v1=…</code>{" "}
+        Signed POSTs for payments, card changes, proofs, credit and disputes. Header <code>X-KeeperCard-Signature: t=…,v1=…</code>{" "}
         is an HMAC-SHA256 over <code>t.body</code> with the secret shown once at creation. Retries: 30s, 2m, 10m, 1h, 6h.
       </p>
       {err && <p className="err">{err}</p>}

@@ -8,7 +8,7 @@
 
 The `mcp_tool_*` spans and the trace-root HTTP spans are **code changes** — they only exist in SigNoz after the server is redeployed.
 
-1. Go to **Railway Dashboard → your AttestPay project → Deployments**
+1. Go to **Railway Dashboard → your KeeperCard project → Deployments**
 2. It should auto-detect commit `4cf5313` (`feat(otel): mcp_tool_* spans...`)
 3. If it didn't auto-deploy → click **Deploy → Redeploy**
 4. Wait ~2 minutes until the deployment shows **Healthy**
@@ -185,9 +185,9 @@ SigNoz → **Traces / Logs explorer → set the filter → "Save view"**
    ```
    (For SigNoz Cloud, use `https://mcp.us2.signoz.cloud/mcp` — your region may differ.)
 2. Then ask Claude:
-   > "List the AttestPay saved views" / "Show me error traces from the last hour" / "Create an alert if mcp_tool errors spike"
+   > "List the KeeperCard saved views" / "Show me error traces from the last hour" / "Create an alert if mcp_tool errors spike"
 
-✅ **Demo gold:** a AttestPay agent-card *pays* for things while an AI agent *watches* those payments through SigNoz MCP.
+✅ **Demo gold:** a KeeperCard agent-card *pays* for things while an AI agent *watches* those payments through SigNoz MCP.
 
 ---
 

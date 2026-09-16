@@ -1,15 +1,15 @@
-# 🎬 AttestPay Demo Video Script (2-3 min)
+# 🎬 KeeperCard Demo Video Script (2-3 min)
 
 ---
 
 ## SCENE 1: Opening — The Problem (0:00-0:20)
 
-**🎥 Screen:** Browser → AttestPay landing page at `glass-pay.vercel.app`
+**🎥 Screen:** Browser → KeeperCard landing page at `glass-pay.vercel.app`
 
 **🎙️ Narrator:**
-"Every AI agent today is locked inside a chat window. They can think, they can plan — but they can't spend. They can't buy APIs, can't purchase tools, can't transact in the real world. AttestPay changes that."
+"Every AI agent today is locked inside a chat window. They can think, they can plan — but they can't spend. They can't buy APIs, can't purchase tools, can't transact in the real world. KeeperCard changes that."
 
-**🎥 Screen:** Quick overlay text: "AI Agents can't pay. AttestPay fixes that."
+**🎥 Screen:** Quick overlay text: "AI Agents can't pay. KeeperCard fixes that."
 
 ---
 
@@ -23,7 +23,7 @@
 **🎥 Screen:** Type name "Demo Agent", set budget "$21 per week" → Click Issue → Card appears with MCP URL + Visa credentials
 
 **🎙️ Narrator:**
-"Set a budget — $21 a week. One click, and your card is live. AttestPay auto-mints a linked test Visa through Stripe, so this card works everywhere — both crypto rails and traditional payment networks."
+"Set a budget — $21 a week. One click, and your card is live. KeeperCard auto-mints a linked test Visa through Stripe, so this card works everywhere — both crypto rails and traditional payment networks."
 
 **🎥 Screen:** Hover over the Visa credentials showing number, expiry, CVC
 
@@ -53,7 +53,7 @@
 **🎥 Screen:** Show Stripe Dashboard side-by-side with the same products
 
 **🎙️ Narrator:**
-"These products are managed in Stripe Dashboard — we created them there, and AttestPay fetches them in real time."
+"These products are managed in Stripe Dashboard — we created them there, and KeeperCard fetches them in real time."
 
 ---
 
@@ -96,15 +96,15 @@
 
 ## SCENE 8: Closing (2:45-3:00)
 
-**🎥 Screen:** Split screen: AttestPay dashboard + Claude + SigNoz
+**🎥 Screen:** Split screen: KeeperCard dashboard + Claude + SigNoz
 
 **🎙️ Narrator:**
-"AttestPay gives AI agents financial agency — with Guardrails. Budgets, expiry, real-time webhook enforcement, full observability. Agents that can spend, within limits you control. This is the future of AI × payments."
+"KeeperCard gives AI agents financial agency — with Guardrails. Budgets, expiry, real-time webhook enforcement, full observability. Agents that can spend, within limits you control. This is the future of AI × payments."
 
 **🎥 Screen:** glasspay.xyz / GitHub link
 
 **🎙️ Narrator:**
-"AttestPay. Give your agents a wallet."
+"KeeperCard. Give your agents a wallet."
 
 ---
 

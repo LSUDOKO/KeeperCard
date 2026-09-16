@@ -94,11 +94,11 @@ that moved native value would still need that value in the wallet.
 
 It demonstrates leg 1 of the cross-chain proof: a payment anchored on Sepolia by
 KeeperHub, with retries, nonce management and gas handled by KeeperHub rather than by
-AttestPay's own worker.
+KeeperCard's own worker.
 
 It does **not** demonstrate leg 2. `AttestPayASC.verifyPayment` runs on Creditcoin CC3,
 and CC3 is not among KeeperHub's 24 supported chains — verified by reading
-`GET /api/chains`. That leg stays on AttestPay's existing direct-RPC path, which is the
+`GET /api/chains`. That leg stays on KeeperCard's existing direct-RPC path, which is the
 fallback the integration spec calls for rather than something faked.
 
 The values above are a smoke-test payment (`cardId = 0xabab…`, memo

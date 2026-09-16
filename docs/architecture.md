@@ -1,4 +1,4 @@
-# AttestPay — System Architecture & SigNoz Observability
+# KeeperCard — System Architecture & SigNoz Observability
 
 > **The agentic card.** Issue scoped, revocable spending cards from your wallet. Any agent plugs one in and pays within your limits — over crypto (USDC/Base) or simulated Visa (Stripe test-mode). **Fully instrumented with OpenTelemetry → SigNoz (traces + metrics + logs).**
 
@@ -43,7 +43,7 @@
 │   │ 1Shot Public       │          │ Stripe Issuing      │                │
 │   │ Relayer (Base)     │          │ (test-mode Visa)    │                │
 │   │ gasless USDC       │          │ virtual card per    │                │
-│   │ redemption         │          │ AttestPay card       │                │
+│   │ redemption         │          │ KeeperCard card       │                │
 │   └────────────────────┘          └─────────────────────┘                │
 └──────────────────────────────┬───────────────────────────────────────────┘
                                │ OTLP HTTP (port 4318) — traces, metrics, logs
@@ -191,7 +191,7 @@ Every log carries the ambient `trace_id` → **click a log entry in SigNoz and j
 
 ### 🅵 USE CASE 6 — SigNoz Dashboards (the judge-ready panels)
 
-Ready-made SQL for a **AttestPay dashboard** (also in `README.md`):
+Ready-made SQL for a **KeeperCard dashboard** (also in `README.md`):
 
 | Panel | Signal | Query source |
 |---|---|---|
@@ -216,7 +216,7 @@ Ready-made SQL for a **AttestPay dashboard** (also in `README.md`):
 
 ### 🅷 USE CASE 8 — SigNoz MCP (agents monitoring the money-agents)
 
-AttestPay bundles the **SigNoz MCP server** (`casting.yaml` → `signoz-mcp-server:latest` on `:8000`), or point at SigNoz Cloud's hosted MCP:
+KeeperCard bundles the **SigNoz MCP server** (`casting.yaml` → `signoz-mcp-server:latest` on `:8000`), or point at SigNoz Cloud's hosted MCP:
 
 ```bash
 claude mcp add signoz http://localhost:8000 \
@@ -224,13 +224,13 @@ claude mcp add signoz http://localhost:8000 \
 ```
 
 Then an AI agent can:
-- Query AttestPay traces/logs/metrics (`signoz_search_traces`, `signoz_search_logs`)
+- Query KeeperCard traces/logs/metrics (`signoz_search_traces`, `signoz_search_logs`)
 - Run ClickHouse queries (`signoz_generate_query`)
 - Create/modify dashboards (`signoz_create_dashboard`, `signoz_modify_dashboard`)
 - Create & investigate alerts (`signoz_create_alert`, `signoz_investigate_alert`)
 - Manage saved views (`signoz_manage_views`)
 
-**The meta-loop:** a AttestPay agent-card pays for things *and* an AI agent watches those payments through SigNoz MCP. Money-agents + observability-agents in one system.
+**The meta-loop:** a KeeperCard agent-card pays for things *and* an AI agent watches those payments through SigNoz MCP. Money-agents + observability-agents in one system.
 
 ---
 
@@ -272,9 +272,9 @@ Every span carries `card_id` + a typed `mcp.refusal_code` on failure (e.g. `over
 
 ### 🅺 USE CASE 11 — RED Metrics + SLOs (the SRE layer)
 
-AttestPay is set up for the full **RED** method (Rate, Errors, Duration) and SLO-driven alerting, per the `signoz-setting-up-observability` workflow:
+KeeperCard is set up for the full **RED** method (Rate, Errors, Duration) and SLO-driven alerting, per the `signoz-setting-up-observability` workflow:
 
-| RED dimension | AttestPay signal | Where it comes from |
+| RED dimension | KeeperCard signal | Where it comes from |
 |---|---|---|
 | **R**ate | Requests/sec per route or tool | HTTP spans / `mcp_tool_*` spans |
 | **E**rrors | Error rate per route / refusal rate | `attestpay.errors_total` metric + error logs + span status |
@@ -311,7 +311,7 @@ Every view carries the same `service.name = attestpay-server` + environment filt
 
 ### 🅼 USE CASE 13 — Extended Dashboard Panels (beyond the 5 core)
 
-Add these to the AttestPay dashboard:
+Add these to the KeeperCard dashboard:
 
 | Panel | Signal | Query sketch |
 |---|---|---|
@@ -349,7 +349,7 @@ Key practices from `signoz-setting-up-observability`:
 
 SigNoz's **Cost Meter** shows ingestion by signal, service, and env — the `signoz-reducing-telemetry-cost` skill's workflow applies directly:
 
-| Signal | Volume driver | AttestPay posture |
+| Signal | Volume driver | KeeperCard posture |
 |---|---|---|
 | Traces | Auto-instrumentation HTTP/fetch + spans | Low-cardinality labels only (`card_id` on traces is fine; **never** as a metric label) |
 | Metrics | 5 custom counters | No high-cardinality attributes — kept clean by design |
@@ -365,7 +365,7 @@ SigNoz's **Cost Meter** shows ingestion by signal, service, and env — the `sig
 
 ### 🅿 USE CASE 16 — Service Map & Infra Monitoring
 
-SigNoz's **Service Map** auto-derives AttestPay's dependency topology from client spans:
+SigNoz's **Service Map** auto-derives KeeperCard's dependency topology from client spans:
 
 ```
 attestpay-server
@@ -382,7 +382,7 @@ attestpay-server
 | Dependency error rate | Which external service is failing (Stripe vs relayer vs Venice)? |
 | Dependency p99 latency | Which hop is slow? (client-span `server.address` grouping) |
 | Service Map view | Live topology + health per node |
-| Infra panels (optional) | CPU/memory/restarts — only if AttestPay ships host metrics (Railway) |
+| Infra panels (optional) | CPU/memory/restarts — only if KeeperCard ships host metrics (Railway) |
 
 **The classic finding:** a healthy `attestpay-server` fronting a sick dependency (e.g. relayer latency) still fails users — the service map makes that visible immediately.
 

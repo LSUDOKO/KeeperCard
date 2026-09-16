@@ -221,7 +221,7 @@ function Consent() {
   if (!authenticated) {
     return (
       <div className="panel" style={{ textAlign: "center", padding: 40 }}>
-        <h1>Connect an Agent to AttestPay</h1>
+        <h1>Connect an Agent to KeeperCard</h1>
         <p style={{ ...body, margin: "8px 0 18px" }}>
           An agent is asking for spending authority · sign in to pick which card it gets.
         </p>

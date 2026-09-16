@@ -296,7 +296,7 @@ function ProfileMenu({
                       >
                         Export Private Key
                       </button>
-                      <p className="pronote">Reveals your key in Privy&apos;s secure window to import elsewhere. AttestPay never sees it.</p>
+                      <p className="pronote">Reveals your key in Privy&apos;s secure window to import elsewhere. KeeperCard never sees it.</p>
                     </div>
                   )}
                   {onLogout && (

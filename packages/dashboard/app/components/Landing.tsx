@@ -292,16 +292,16 @@ claude mcp add --transport http remit https://<host>/mcp
           <Logo size="sm" />
           <nav aria-label="Footer">
             <Link href="/docs">Docs</Link>
-            <a href="https://github.com/LSUDOKO/AttestPay" target="_blank" rel="noreferrer">
+            <a href="https://github.com/LSUDOKO/KeeperCard" target="_blank" rel="noreferrer">
               GitHub
             </a>
-            <a href="https://github.com/LSUDOKO/AttestPay/blob/main/CHANGELOG.md" target="_blank" rel="noreferrer">
+            <a href="https://github.com/LSUDOKO/KeeperCard/blob/main/CHANGELOG.md" target="_blank" rel="noreferrer">
               Changelog
             </a>
-            <a href="https://github.com/LSUDOKO/AttestPay/blob/main/SECURITY.md" target="_blank" rel="noreferrer">
+            <a href="https://github.com/LSUDOKO/KeeperCard/blob/main/SECURITY.md" target="_blank" rel="noreferrer">
               Security
             </a>
-            <a href="https://github.com/LSUDOKO/AttestPay/blob/main/LICENSE" target="_blank" rel="noreferrer">
+            <a href="https://github.com/LSUDOKO/KeeperCard/blob/main/LICENSE" target="_blank" rel="noreferrer">
               License
             </a>
           </nav>

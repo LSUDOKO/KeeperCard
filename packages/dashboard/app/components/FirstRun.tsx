@@ -90,7 +90,7 @@ export function FirstRun({
         className="modal fr"
         role="dialog"
         aria-modal="true"
-        aria-label="Welcome to AttestPay"
+        aria-label="Welcome to KeeperCard"
         initial={{ opacity: 0, y: 26, scale: 0.97 }}
         animate={{ opacity: 1, y: 0, scale: 1, transition: { type: "spring", stiffness: 360, damping: 30 } }}
         exit={{ opacity: 0, y: 14, scale: 0.98, transition: { duration: 0.16 } }}
@@ -106,7 +106,7 @@ export function FirstRun({
             >
               <div className="mhead">
                 <div>
-                  <div className="mtitle">Welcome to AttestPay</div>
+                  <div className="mtitle">Welcome to KeeperCard</div>
                   <div className="msub">Authority, lent not given.</div>
                 </div>
               </div>

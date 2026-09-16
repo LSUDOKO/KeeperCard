@@ -2,17 +2,17 @@
 
 **The moment I realized I had no observability:** A user's AI agent tried to buy $50 worth of API credits. The Stripe webhook got the authorization request, had 2 seconds to reply, and timed out. The POS terminal declined. The agent saw a cryptic `isError: true` response. The user saw "card declined" on their phone. I saw a log line that just said "timeout" — zero information about which of the five sequential hops between "agent wants to spend" and "money moves" had stalled.
 
-I had built an agentic spending card platform — AttestPay — where users hand a card URL to an AI agent and the agent spends money within programmable limits. And I couldn't tell anyone *why* their card was declined.
+I had built an agentic spending card platform — KeeperCard — where users hand a card URL to an AI agent and the agent spends money within programmable limits. And I couldn't tell anyone *why* their card was declined.
 
 This is how I instrumented the whole thing with OpenTelemetry and SigNoz: traces that span HTTP calls, on-chain settlements, and LLM prompts; metrics that track real money; and structured logs that let me click from a failure straight into its correlated trace. Along the way I learned that **observability for agentic systems isn't the same as observability for normal web apps**, and that the hardest part isn't setting up the pipeline — it's knowing what to instrument once the pipeline is running.
 
-![IMG-1: Hero screenshot — SigNoz Traces view showing the AttestPay request waterfall with the HTTP root span at top and child spans below (mcp_tool_card, fetch, sqlite, stripe_webhook_auth). This is your "one trace = the whole story" money shot.](screenshots/img-01.png)
+![IMG-1: Hero screenshot — SigNoz Traces view showing the KeeperCard request waterfall with the HTTP root span at top and child spans below (mcp_tool_card, fetch, sqlite, stripe_webhook_auth). This is your "one trace = the whole story" money shot.](screenshots/img-01.png)
 
 ---
 
 ## The System: Three External Hops, One 2-Second Deadline
 
-AttestPay is a Hono TypeScript server with a smart contract engine that turns plain-language rules into on-chain delegation policies. The full flow from "agent wants to spend" to "money moves" crosses three completely separate systems:
+KeeperCard is a Hono TypeScript server with a smart contract engine that turns plain-language rules into on-chain delegation policies. The full flow from "agent wants to spend" to "money moves" crosses three completely separate systems:
 
 1. **Venice AI** — turns natural language intent (`"$5/week for research APIs"`) into structured card terms
 2. **Stripe Issuing** — authorizes the Visa transaction with a **hard 2-second deadline**
@@ -125,7 +125,7 @@ setInterval(() => {
 
 ### The mcp_tool_* spans: every agent action is observable
 
-This is the layer I'm proudest of. AttestPay exposes its agent tools over MCP (Model Context Protocol), so every tool call — `card`, `pay`, `paid_fetch`, `shop_buy`, `issue_subcard`, and the rest — is a named span with the card ID and outcome as attributes:
+This is the layer I'm proudest of. KeeperCard exposes its agent tools over MCP (Model Context Protocol), so every tool call — `card`, `pay`, `paid_fetch`, `shop_buy`, `issue_subcard`, and the rest — is a named span with the card ID and outcome as attributes:
 
 ```typescript
 // packages/server/src/mcp/server.ts — every agent tool call is a span
@@ -160,7 +160,7 @@ async function run(toolName: string, cardId: string, fn: () => Promise<unknown>)
 }
 ```
 
-Now when an agent is mid-conversation with AttestPay, SigNoz shows me exactly what it did: search `name LIKE 'mcp_tool_%'` and every tool invocation appears with its duration. And when one fails, the typed refusal code (`over_period_limit`, `merchant_not_allowed`, `card_frozen`, ...) is right there on the span — no more guessing whether the agent or the policy was at fault.
+Now when an agent is mid-conversation with KeeperCard, SigNoz shows me exactly what it did: search `name LIKE 'mcp_tool_%'` and every tool invocation appears with its duration. And when one fails, the typed refusal code (`over_period_limit`, `merchant_not_allowed`, `card_frozen`, ...) is right there on the span — no more guessing whether the agent or the policy was at fault.
 
 ![IMG-3: SigNoz trace search for name LIKE 'mcp_tool_%' — showing every agent tool call (mcp_tool_card, mcp_tool_shop_buy, ...) with duration, card_id, and mcp.is_error columns.](screenshots/img-03.png)
 
@@ -305,7 +305,7 @@ This exposes 8 MCP tools to any connected AI agent:
 | Tool | What It Does |
 |------|-------------|
 | `signoz_search_docs` | Search SigNoz documentation |
-| `signoz_create_dashboard` | Build dashboard panels from AttestPay metrics |
+| `signoz_create_dashboard` | Build dashboard panels from KeeperCard metrics |
 | `signoz_modify_dashboard` | Update existing dashboard configurations |
 | `signoz_create_alert` | Set up alerts for error spikes, card stalls |
 | `signoz_investigate_alert` | Deep-dive alert-triggered incidents |
@@ -313,7 +313,7 @@ This exposes 8 MCP tools to any connected AI agent:
 | `signoz_explain_dashboard` | Understand dashboard layout semantics |
 | `signoz_manage_views` | Create and manage saved log views |
 
-**The recursion:** The same agents that spend money through AttestPay can query their own observability data through SigNoz MCP. An agent that gets a `"card declined"` response can call `signoz_search_docs` to look up refusal codes, generate a ClickHouse query to find its own logs, and figure out *why* it was declined — without a human touching the dashboard. The agent asks: "Show me my last 5 refusal logs" and SigNoz MCP returns structured answers.
+**The recursion:** The same agents that spend money through KeeperCard can query their own observability data through SigNoz MCP. An agent that gets a `"card declined"` response can call `signoz_search_docs` to look up refusal codes, generate a ClickHouse query to find its own logs, and figure out *why* it was declined — without a human touching the dashboard. The agent asks: "Show me my last 5 refusal logs" and SigNoz MCP returns structured answers.
 
 I connected it to Claude Code:
 
@@ -337,7 +337,7 @@ I arranged the SigNoz dashboard in a narrative flow. Top row: "Are cards being c
 When I present this in the hackathon demo, the script is:
 
 1. Open SigNoz → **Traces** → filter `service.name = attestpay-server` — show the full request waterfall
-2. Issue a card on the AttestPay dashboard — watch the `card_event: "issued"` log appear in SigNoz in real-time
+2. Issue a card on the KeeperCard dashboard — watch the `card_event: "issued"` log appear in SigNoz in real-time
 3. Make a payment — trace the `1shot_relayer_redeem` span + `charge_event: "confirmed"` log
 4. Call `shop_buy` via the agent — watch the `mcp_tool_shop_buy` span and the MCP Tool Usage panel tick up
 5. Freeze the card — see `card_event: "frozen"` with timestamp
@@ -349,7 +349,7 @@ The demo took 30 seconds to set up live and it's the most convincing thing I've 
 
 ## The Service Map: The Whole Topology at a Glance
 
-SigNoz builds a service map automatically from trace spans. AttestPay shows up as `attestpay-server` with edges to everything it touches: **Stripe** (the webhook fetches), **Venice AI** (`nl_compile`), **1Shot Relayer** (`1shot_relayer_redeem`), and **SQLite** (the store). Clicking any edge gives the error rate and latency for that dependency — I can see at a glance which external service is the current bottleneck.
+SigNoz builds a service map automatically from trace spans. KeeperCard shows up as `attestpay-server` with edges to everything it touches: **Stripe** (the webhook fetches), **Venice AI** (`nl_compile`), **1Shot Relayer** (`1shot_relayer_redeem`), and **SQLite** (the store). Clicking any edge gives the error rate and latency for that dependency — I can see at a glance which external service is the current bottleneck.
 
 ![IMG-11: SigNoz Service Map — attestpay-server node with edges to Stripe, Venice AI, 1Shot, and SQLite.](screenshots/img-11.png)
 
@@ -407,7 +407,7 @@ services:
 
 The `casting.yaml.lock` pins every image to its digest for reproducible judging. Deploy with `foundryctl cast -f casting.yaml --locked` and the entire stack — ClickHouse, Collector, Query Service, Frontend, and MCP Server — comes up with one command.
 
-AttestPay's OTel SDK exports to `http://localhost:4318` by default. Switching to SigNoz Cloud is two env vars:
+KeeperCard's OTel SDK exports to `http://localhost:4318` by default. Switching to SigNoz Cloud is two env vars:
 
 ```
 OTEL_EXPORTER_OTLP_ENDPOINT=https://ingest.us2.signoz.cloud
@@ -436,7 +436,7 @@ SigNoz turns the firehose of events into a coherent timeline. And with the MCP s
 
 ---
 
-*AttestPay is open source at [github.com/LSUDOKO/AttestPay](https://github.com/LSUDOKO/AttestPay). The SigNoz deployment config is in `casting.yaml` at the project root. Built for the MetaMask Smart Accounts Kit × 1Shot API × Venice AI Dev Cook Off and the SigNoz Hackathon. If you're building agentic payment systems — or just want to see how OTel works with Bun + Hono — the full instrumentation is in `packages/engine/src/telemetry.ts` and `packages/server/src/app.ts`.*
+*KeeperCard is open source at [github.com/LSUDOKO/KeeperCard](https://github.com/LSUDOKO/KeeperCard). The SigNoz deployment config is in `casting.yaml` at the project root. Built for the MetaMask Smart Accounts Kit × 1Shot API × Venice AI Dev Cook Off and the SigNoz Hackathon. If you're building agentic payment systems — or just want to see how OTel works with Bun + Hono — the full instrumentation is in `packages/engine/src/telemetry.ts` and `packages/server/src/app.ts`.*
 
 ---
 

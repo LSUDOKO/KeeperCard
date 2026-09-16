@@ -235,7 +235,7 @@ export default function DocsPage() {
             <span className="doceyebrow">The agentic card</span>
             <h1>Documentation</h1>
             <p className="docsub">
-              AttestPay issues scoped, revocable spending cards from your wallet. Any agent plugs one in over MCP and
+              KeeperCard issues scoped, revocable spending cards from your wallet. Any agent plugs one in over MCP and
               pays within your limits, holding no keys and no funds, dead the moment you revoke. Here is how it
               works, end to end.
             </p>
@@ -245,7 +245,7 @@ export default function DocsPage() {
           <Section id="overview" title="Overview">
             <p className="docp">
               Agents need to spend money. Handing an agent your private key is reckless; funding a standalone agent
-              wallet loses both your custody and your limits. AttestPay takes the model the card industry settled on
+              wallet loses both your custody and your limits. KeeperCard takes the model the card industry settled on
               decades ago and applies it to agents: the wallet stays the account, and the agent gets a <b>card</b>,
               a scoped authority to draw from it.
             </p>
@@ -277,7 +277,7 @@ export default function DocsPage() {
             </div>
 
             <p className="docp">
-              AttestPay runs on <b>Base mainnet</b> with real USDC. The only simulated leg is the Visa rail (Stripe
+              KeeperCard runs on <b>Base mainnet</b> with real USDC. The only simulated leg is the Visa rail (Stripe
               test-mode Issuing), labeled honestly wherever it appears.
             </p>
 
@@ -610,7 +610,7 @@ droid     mcp add attestpay https://<host>/c/<secret>/mcp --type http`} />
             <p className="docp">
               <code>paid_fetch</code> answers an HTTP 402 challenge by paying through the card&apos;s 7710 delegation:
               real x402 v2 flows on Base mainnet, USDC settled from your wallet through the 1Shot Public Relayer
-              (gasless, fee in USDC). AttestPay also ships the first ERC-7710 x402 facilitator
+              (gasless, fee in USDC). KeeperCard also ships the first ERC-7710 x402 facilitator
               (<code>/facilitator/verify</code>, <code>/settle</code>, <code>/supported</code> advertising{" "}
               <code>assetTransferMethod: erc7710</code>) and a demo seller at <code>/demo/premium-data</code> whose 402
               points back at it.
@@ -618,7 +618,7 @@ droid     mcp add attestpay https://<host>/c/<secret>/mcp --type http`} />
             <h3>Stripe Issuing Visa (simulated)</h3>
             <p className="docp">
               <code>fiat_pay</code> and <code>card_credentials</code> drive a test-mode virtual Visa. When a charge is
-              authorized, Stripe calls AttestPay&apos;s real-time auth webhook, which answers approve/decline from the
+              authorized, Stripe calls KeeperCard&apos;s real-time auth webhook, which answers approve/decline from the
               card&apos;s on-chain delegation state inside Stripe&apos;s hard 2-second window (read from a cached
               snapshot, never an RPC call in the handler). A decline comes back typed, from the card&apos;s terms, not
               the merchant.
@@ -646,7 +646,7 @@ droid     mcp add attestpay https://<host>/c/<secret>/mcp --type http`} />
               <li className="docli">
                 <b>Custody.</b> Your funds stay in your wallet. The per-card agent key signs redelegations only; it
                 holds no assets and is encrypted at rest. You can export your wallet&apos;s private key from the
-                account menu at any time (through Privy&apos;s secure modal, rendered in a separate-domainiframe AttestPay never reads) and walk away to any client.
+                account menu at any time (through Privy&apos;s secure modal, rendered in a separate-domainiframe KeeperCard never reads) and walk away to any client.
               </li>
               <li className="docli">
                 <b>Dashboard auth.</b> Per-user Privy sessions, verified server-side against the app JWKS. At onboard,
@@ -728,7 +728,7 @@ droid     mcp add attestpay https://<host>/c/<secret>/mcp --type http`} />
             <p className="docp">
               Off-chain, <code>GET /passport/:address</code> is public and returns the same record with a <b>signed credential</b>
               (EIP-191 over the key-sorted JSON payload, signed by the anchorer, 24h expiry). <code>POST /passport/verify</code>{" "}
-              or <code>AttestPay.passport.verify()</code> in the SDK checks it with no RPC. The formula: payment count ×4 (max
+              or <code>KeeperCard.passport.verify()</code> in the SDK checks it with no RPC. The formula: payment count ×4 (max
               40) + verified USDC ×3 (max 30) + history days (max 30), scaled by the within-terms rate where terms exist; then
               +10 per repaid line (max 20), −25 per default, −10 per upheld dispute; clamped 0..100. A summary of public facts,
               not a risk model.
@@ -746,7 +746,7 @@ droid     mcp add attestpay https://<host>/c/<secret>/mcp --type http`} />
             <p className="docp">
               Revocations are proven the same way. <code>AttestPayASC.revokeCardTerms</code> flips a flag; the ledger records{" "}
               <b>when</b>, from attested bytes, so any counterparty can answer &ldquo;was this card live when it paid me?&rdquo;
-              with <code>wasRevokedAt(cardId, paidAt)</code> — without taking AttestPay&apos;s word for it.
+              with <code>wasRevokedAt(cardId, paidAt)</code> — without taking KeeperCard&apos;s word for it.
             </p>
           </Section>
 
@@ -754,8 +754,8 @@ droid     mcp add attestpay https://<host>/c/<secret>/mcp --type http`} />
             <p className="docp">
               Every card action, confirmed payment, verified or failed proof/fact, credit-line step, dispute and low-budget
               alert is an event. Create webhooks in Settings or via <code>POST /api/webhooks</code>; each delivery is a JSON
-              POST with <code>X-AttestPay-Event</code>, <code>X-AttestPay-Delivery</code> and{" "}
-              <code>X-AttestPay-Signature: t=&lt;unix&gt;,v1=&lt;hex&gt;</code>, where <code>v1</code> is HMAC-SHA256 over{" "}
+              POST with <code>X-KeeperCard-Event</code>, <code>X-KeeperCard-Delivery</code> and{" "}
+              <code>X-KeeperCard-Signature: t=&lt;unix&gt;,v1=&lt;hex&gt;</code>, where <code>v1</code> is HMAC-SHA256 over{" "}
               <code>{"${t}.${body}"}</code> with the secret shown once at creation. Retries: 30s, 2m, 10m, 1h, 6h, then dead
               (retryable by hand). Endpoints must be https on a public host.
             </p>
@@ -808,9 +808,9 @@ droid     mcp add attestpay https://<host>/c/<secret>/mcp --type http`} />
               every integrator needs: <code>verifyWebhookSignature</code> (WebCrypto) and <code>verifyPassportCredential</code>{" "}
               (EIP-191). Typed refusals arrive as <code>AttestPayError</code> with the server&apos;s code.
             </p>
-            <pre className="doccode">{`import { AttestPay } from "@attestpay/sdk";
+            <pre className="doccode">{`import { KeeperCard } from "@attestpay/sdk";
 
-const ap = new AttestPay({ baseUrl: "https://api.example.com", token: PRIVY_ACCESS_TOKEN });
+const ap = new KeeperCard({ baseUrl: "https://api.example.com", token: PRIVY_ACCESS_TOKEN });
 const { as_borrower } = await ap.credit.list();
 await ap.credit.draw(as_borrower[0].line_id, { card_id, amount: "4.00", idempotency_key: "draw-1" });
 
@@ -820,7 +820,7 @@ const ok = await ap.passport.verify(passport.credential!, { expectedSigner: ANCH
 
           <Section id="signoz-overview" title="SigNoz Observability">
             <p className="docp">
-              AttestPay is <b>fully instrumented with OpenTelemetry</b> and ships <b>traces, metrics, and logs</b> to{" "}
+              KeeperCard is <b>fully instrumented with OpenTelemetry</b> and ships <b>traces, metrics, and logs</b> to{" "}
               <b>SigNoz Cloud</b> (and can self-host locally via the included <code>casting.yaml</code>). Every card
               issuance, every payment, every refusal, every API call — all visible in SigNoz.
             </p>
@@ -957,7 +957,7 @@ ORDER BY ts`} />
 
           <Section id="signoz-logs" title="Structured Logs — Event-Driven Observability">
             <p className="docp">
-              AttestPay emits structured logs for every significant card lifecycle event. Navigate to <b>SigNoz → Logs</b>{" "}
+              KeeperCard emits structured logs for every significant card lifecycle event. Navigate to <b>SigNoz → Logs</b>{" "}
               and filter by <code>card_event</code>, <code>charge_event</code>, <code>refusal_reason</code>, or{" "}
               <code>operation</code> to see exactly what happened.
             </p>
@@ -991,7 +991,7 @@ ORDER BY ts`} />
 
           <Section id="signoz-dashboard" title="SigNoz Dashboard & ClickHouse Queries">
             <p className="docp">
-              Create a AttestPay dashboard in SigNoz with panels for every metric and trace attribute. Below are the
+              Create a KeeperCard dashboard in SigNoz with panels for every metric and trace attribute. Below are the
               ClickHouse queries for each panel type.
             </p>
 
@@ -1091,7 +1091,7 @@ claude mcp add signoz https://signoz.io/api/mcp \\
                 <b>signoz_search_docs</b> — Search SigNoz documentation for guides and references.
               </li>
               <li className="docli">
-                <b>signoz_create_dashboard</b> — Create new dashboards with panels for AttestPay metrics.
+                <b>signoz_create_dashboard</b> — Create new dashboards with panels for KeeperCard metrics.
               </li>
               <li className="docli">
                 <b>signoz_modify_dashboard</b> — Update existing dashboard panels and configurations.
@@ -1103,7 +1103,7 @@ claude mcp add signoz https://signoz.io/api/mcp \\
                 <b>signoz_investigate_alert</b> — Deep-dive into alert-triggered incidents with neighbor signals.
               </li>
               <li className="docli">
-                <b>signoz_generate_query</b> — Generate ClickHouse queries for AttestPay observability data.
+                <b>signoz_generate_query</b> — Generate ClickHouse queries for KeeperCard observability data.
               </li>
               <li className="docli">
                 <b>signoz_explain_dashboard</b> — Understand existing dashboard layouts and panel semantics.
@@ -1114,7 +1114,7 @@ claude mcp add signoz https://signoz.io/api/mcp \\
             </ul>
 
             <p className="docp">
-              Example: ask your agent <i>&quot;Create a SigNoz dashboard for AttestPay showing cards issued, USDC spent,
+              Example: ask your agent <i>&quot;Create a SigNoz dashboard for KeeperCard showing cards issued, USDC spent,
               and API error rate&quot;</i> — it will use the MCP tools to build the entire dashboard without you
               touching the SigNoz UI.
             </p>
@@ -1123,7 +1123,7 @@ claude mcp add signoz https://signoz.io/api/mcp \\
           <Section id="signoz-alerts" title="Alerts & Self-Hosting">
             <h3>Recommended alerts</h3>
             <p className="docp">
-              Set up these alerts in SigNoz to monitor AttestPay health:
+              Set up these alerts in SigNoz to monitor KeeperCard health:
             </p>
             <Table
               head={["Alert", "Condition", "Severity"]}
@@ -1164,7 +1164,7 @@ OTEL_LOGS_EXPORTER=otlp`} />
               head={["Service", "Image", "Purpose"]}
               rows={[
                 ["ClickHouse", <code key="c">clickhouse/clickhouse-server:24.12</code>, "Time-series database storing all traces, metrics, and logs"],
-                ["OTel Collector", <code key="c">signoz/signoz-otel-collector:0.119.3</code>, "Receives OTLP from AttestPay and writes to ClickHouse"],
+                ["OTel Collector", <code key="c">signoz/signoz-otel-collector:0.119.3</code>, "Receives OTLP from KeeperCard and writes to ClickHouse"],
                 ["Query Service", <code key="c">signoz/query-service:0.81.0</code>, "SigNoz backend: API for dashboards, alerts, and queries"],
                 ["Frontend", <code key="c">signoz/frontend:0.81.0</code>, "SigNoz Web UI at port 3301"],
                 ["MCP Server", <code key="c">signoz/mcp-server:latest</code>, "AI-agent observability: expose SigNoz tools to your agent"],
@@ -1312,12 +1312,12 @@ bun run --cwd packages/dashboard dev   # dashboard on :4071`} />
           {/* ---- Cook Off ---- */}
           <Section id="cookoff" title="The Cook Off">
             <p className="docp">
-              AttestPay was built for the MetaMask Smart Accounts Kit × 1Shot API × Venice AI Dev Cook Off. The hard gate,
+              KeeperCard was built for the MetaMask Smart Accounts Kit × 1Shot API × Venice AI Dev Cook Off. The hard gate,
               Smart Accounts Kit in the main flow, is the product itself: every card is a SAK delegation, signed by a
               Privy-provisioned embedded smart account, and every spend redeems it on-chain.
             </p>
             <Table
-              head={["Track", "What AttestPay does"]}
+              head={["Track", "What KeeperCard does"]}
               rows={[
                 ["x402 + ERC-7710", "paid_fetch pays HTTP 402 through the card's 7710 delegation; real x402 v2 on Base mainnet"],
                 ["Best Agent experience", "One URL is the whole integration; typed refusals; an OAuth lane for consent UX"],
@@ -1327,7 +1327,7 @@ bun run --cwd packages/dashboard dev   # dashboard on :4071`} />
               ]}
             />
             <Note>
-              AttestPay uses programmatic <b>ERC-7710 Delegations</b>, not ERC-7715 Advanced Permissions: the 7710 caveat
+              KeeperCard uses programmatic <b>ERC-7710 Delegations</b>, not ERC-7715 Advanced Permissions: the 7710 caveat
               set is richer than the 7715 grant catalog allows, so there is no{" "}
               <code>wallet_requestExecutionPermissions</code> path.
             </Note>

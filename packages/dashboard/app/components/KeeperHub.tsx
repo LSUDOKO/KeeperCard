@@ -2,7 +2,7 @@
 
 // The execution pane: what KeeperHub actually did with this account's money.
 //
-// AttestPay decides what may be spent. KeeperHub moves it. This pane is the second
+// KeeperCard decides what may be spent. KeeperHub moves it. This pane is the second
 // half — and like the Attestcoin pane, it is built around not overclaiming:
 //
 //   1. A dry run is not a payment. `simulated` rows are rendered as a rehearsal that
@@ -180,7 +180,7 @@ function Status({ status, stats }: { status: KeeperHubStatus_; stats: KeeperHubS
         </span>
       </div>
       <p className="khnote">
-        AttestPay authorises; KeeperHub executes. Nonce management, gas estimation, retries and the
+        KeeperCard authorises; KeeperHub executes. Nonce management, gas estimation, retries and the
         audit trail below are KeeperHub&apos;s.
         {status.dry_run_required ? " Every payment must be dry-run before it can execute." : null}
       </p>
@@ -410,7 +410,7 @@ function Run({ x, open, onOpen }: { x: KeeperHubExecution; open: boolean; onOpen
 /**
  * The audit trail's independent witness.
  *
- * Everything above reports what AttestPay believes. This panel reports what the chain
+ * Everything above reports what KeeperCard believes. This panel reports what the chain
  * holds, and the difference. The honesty rule here is the window: the scan is bounded,
  * so an anchor older than `from_block` was never looked at — "unwitnessed" is stated as
  * "no event in this range", never as "did not happen".
@@ -472,9 +472,9 @@ function Attestation({ report }: { report: AttestationReport | null }) {
 
       {unrecorded.length ? (
         <>
-          <h3 className="khsub">On-chain, but not in AttestPay&apos;s books</h3>
+          <h3 className="khsub">On-chain, but not in KeeperCard&apos;s books</h3>
           <p className="khnote">
-            The chain holds these anchors and AttestPay has no record of them — a run whose result
+            The chain holds these anchors and KeeperCard has no record of them — a run whose result
             never made it home. This is the direction worth investigating.
           </p>
           <ul className="khruns">
@@ -498,7 +498,7 @@ function Attestation({ report }: { report: AttestationReport | null }) {
         <>
           <h3 className="khsub">No event in the scanned range</h3>
           <p className="khnote">
-            AttestPay recorded these as landed, and no matching event appears between blocks{" "}
+            KeeperCard recorded these as landed, and no matching event appears between blocks{" "}
             {report.from_block ?? "?"} and {report.to_block ?? "?"}. An anchor older than that window
             was simply not scanned, so this is not by itself a discrepancy.
           </p>

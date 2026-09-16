@@ -23,14 +23,14 @@ Speaker notes are HTML comments, so they stay off the slide and ride along as PD
 notes annotations with --pdf-notes.
 -->
 
-## 1 — AttestPay
+## 1 — KeeperCard
 
 ### Agentic spending cards, with provable history
 
 Scoped, revocable payment delegations any AI agent can plug in and pay with — now with
 every payment proven cross-chain onto Creditcoin.
 
-`github.com/LSUDOKO/AttestPay`
+`github.com/LSUDOKO/KeeperCard`
 
 **Track:** AI (primary) · DeFi (secondary)
 
@@ -49,7 +49,7 @@ An AI agent that needs to pay has two bad options:
 - **Give it a key.** It can now spend everything, forever.
 - **Put a human in the loop.** It is no longer an agent.
 
-AttestPay already solved that part: a card is a scoped, revocable delegation.
+KeeperCard already solved that part: a card is a scoped, revocable delegation.
 
 **But a card builds no reputation.** Ask "has this agent paid reliably?" and the only
 answer is "trust our database". An agent cannot carry its track record anywhere, and
@@ -266,7 +266,7 @@ SigNoz instrumentation of the whole proof lifecycle.
 3. **Credit-gated spending:** a card whose limits rise with its verified history — the
    first real use of agent credit, and what Creditcoin is for.
 
-`github.com/LSUDOKO/AttestPay` · [docs/attestcoin-integration.md](attestcoin-integration.md)
+`github.com/LSUDOKO/KeeperCard` · [docs/attestcoin-integration.md](attestcoin-integration.md)
 
 <!--
 Notes: Close on (3). It reframes the work: this is not reporting on payments, it is the

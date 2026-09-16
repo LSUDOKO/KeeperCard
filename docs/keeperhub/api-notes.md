@@ -130,7 +130,7 @@ holding 0 ETH.
 
 24 chains at the time of writing: Ethereum, Sepolia, Base, Base Sepolia, Arbitrum,
 Polygon, and others. **Creditcoin CC3 is not among them**, which is why the Attestcoin
-proof's second leg stays on AttestPay's direct RPC path.
+proof's second leg stays on KeeperCard's direct RPC path.
 
 ## Cold starts
 

@@ -1,6 +1,6 @@
 # Attestcoin Protocol Integration
 
-How AttestPay uses Creditcoin's Attestcoin Protocol to turn AI agent payments into
+How KeeperCard uses Creditcoin's Attestcoin Protocol to turn AI agent payments into
 cross-chain-verified, on-chain credit history.
 
 This document is written to be checked rather than believed. Every claim about the
@@ -32,7 +32,7 @@ on the trust model states plainly what the integration does **not** prove.
 
 ## 1. What this integration does
 
-AttestPay issues scoped, revocable spending cards to AI agents. An agent holding a
+KeeperCard issues scoped, revocable spending cards to AI agents. An agent holding a
 card can pay USDC on Base within limits its owner set — a period budget, a per-payment
 cap, an expiry, a merchant allowlist.
 
@@ -45,8 +45,8 @@ Concretely, per payment:
 
 | | |
 |---|---|
-| **Before** | The payment exists on Base. Anyone asking "has this agent paid reliably?" must trust AttestPay's database. |
-| **After** | The payment record is proven into a Creditcoin contract by the Attestcoin Block Prover precompile. The agent's history is public, append-only, and readable by any Creditcoin dApp without trusting AttestPay at all. |
+| **Before** | The payment exists on Base. Anyone asking "has this agent paid reliably?" must trust KeeperCard's database. |
+| **After** | The payment record is proven into a Creditcoin contract by the Attestcoin Block Prover precompile. The agent's history is public, append-only, and readable by any Creditcoin dApp without trusting KeeperCard at all. |
 
 ---
 
@@ -63,7 +63,7 @@ transaction in a block **attested by the Attestcoin attestor network**.
 No oracle is trusted for this. The Block Prover precompile checks a Merkle inclusion
 proof and a block-continuity proof inside the same Creditcoin transaction that records
 the result. `AttestPayASC` then decodes the payment's fields **out of the proven
-transaction bytes**, so no relayer — including AttestPay's own server — can alter a
+transaction bytes**, so no relayer — including KeeperCard's own server — can alter a
 value in flight. Submitting a proof is permissionless: a valid proof is
 self-authenticating, and relaying someone else's can only record what the anchor
 truly said.
@@ -72,7 +72,7 @@ truly said.
 
 **That the underlying Base payment happened.**
 
-The AttestPay server writes the anchor. So the hop from "USDC moved on Base" to "an
+The KeeperCard server writes the anchor. So the hop from "USDC moved on Base" to "an
 anchor says USDC moved on Base" is the server's own attestation, not Attestcoin's.
 
 Two things keep that honest rather than hand-wavy:
@@ -86,7 +86,7 @@ Two things keep that honest rather than hand-wavy:
 
 So the correct description of a verified payment is:
 
-> AttestPay asserted this payment on an attested chain, and that assertion is now
+> KeeperCard asserted this payment on an attested chain, and that assertion is now
 > cryptographically immutable, publicly timestamped, attributable to a named
 > anchorer, and checkable against the Base transaction it names.
 
@@ -123,7 +123,7 @@ cast call 0x0000000000000000000000000000000000000fd3 \
 ```
 
 Base (8453) and Base Sepolia (84532) are **not** in that list, so a Base transaction
-cannot be proven into Creditcoin at all. AttestPay's payments execute on Base — the
+cannot be proven into Creditcoin at all. KeeperCard's payments execute on Base — the
 ERC-7710 delegation stack and the 1Shot relayer only exist there — so the integration
 anchors to Ethereum Sepolia (`chainKey = 1`) and proves the anchoring transaction.
 
@@ -186,7 +186,7 @@ number is why the proof pipeline is a background worker rather than an inline st
 │     ├─▶ require anchoredBy == trustedAnchorer                             │
 │     └─▶ store VerifiedPayment · update AgentCredit · check CardTerms      │
 │                                                                           │
-│   Readable by ANY Creditcoin contract, with no trust in AttestPay:        │
+│   Readable by ANY Creditcoin contract, with no trust in KeeperCard:        │
 │     getAgentCredit(payer) · getCardPayments(cardId, offset, limit)        │
 └──────────────────────────────────────────────────────────────────────────┘
 
@@ -708,7 +708,7 @@ Stated rather than buried.
    not removed — by recording `sourceTxHash` and pinning `anchoredBy`.
 
 2. **Verification latency is ~8–10 minutes**, set by the attestor network, not by
-   AttestPay. Receipts are honest about this; `pay` never waits for it.
+   KeeperCard. Receipts are honest about this; `pay` never waits for it.
 
 3. **Period budgets are not checked on-chain.** Only `perTxMax` and `expiresAt` are.
    See §9 for why a half-check would be worse than none.

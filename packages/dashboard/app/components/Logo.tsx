@@ -20,9 +20,9 @@ export function Monogram({ size = 36 }: { size?: number }) {
 export function Logo({ href = "/", size = "md" }: { href?: string; size?: "sm" | "md" | "lg" }) {
   const px = size === "lg" ? 44 : size === "sm" ? 30 : 36;
   return (
-    <Link className={`logo logo-${size}`} href={href} aria-label="AttestPay">
+    <Link className={`logo logo-${size}`} href={href} aria-label="KeeperCard">
       <Monogram size={px} />
-      <span className="lgword">AttestPay</span>
+      <span className="lgword">KeeperCard</span>
     </Link>
   );
 }

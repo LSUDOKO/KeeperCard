@@ -1,6 +1,6 @@
 "use client";
 
-// /keeperhub: the execution layer. AttestPay decides what may be spent; this page is
+// /keeperhub: the execution layer. KeeperCard decides what may be spent; this page is
 // the record of KeeperHub actually moving it — workflows, runs, step logs, tx hashes.
 // Read-only: nothing on this page moves money, it only reports what already did.
 
