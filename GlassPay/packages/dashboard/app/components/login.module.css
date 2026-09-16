@@ -1,0 +1,77 @@
+/* The sign-in screen, sketchbook edition. A split title page on cream paper:
+   the type column toward the centre (display headline with a highlighted word,
+   the quiet lede, the CTA stack) and the real card object resting tilted on the
+   right, on a sticky-note. Atmosphere is the nav's yellow glow and a few
+   hand-drawn marks — no gradients, no beams. The Boot overlay exits over this. */
+
+.stage {
+  position: relative; min-height: 100dvh; overflow: hidden;
+  display: grid; grid-template-columns: 1.05fr 0.95fr; align-items: center;
+  gap: 48px; max-width: 1200px; margin: 0 auto; padding: 120px 24px 80px;
+}
+.stage::before {
+  content: ""; position: absolute; left: 10%; right: 10%; top: -320px; height: 520px; z-index: 0;
+  background: radial-gradient(closest-side, rgba(255, 233, 92, 0.5), rgba(255, 233, 92, 0)); pointer-events: none;
+}
+.brand { position: absolute; top: 22px; left: 24px; z-index: 2; }
+.docslink {
+  position: absolute; top: 24px; right: 24px; z-index: 2; text-decoration: none;
+  display: inline-flex; align-items: center; height: 34px; padding: 0 14px; border-radius: 6px;
+  border: 1px solid var(--ink); color: var(--ink); font-size: 14px; font-weight: 500;
+  transition: background 0.2s var(--ease), color 0.2s var(--ease);
+}
+.docslink:hover { background: var(--ink); color: var(--on-ink); }
+
+.type { position: relative; z-index: 1; }
+.badge {
+  display: inline-flex; align-items: center; gap: 7px; padding: 5px 10px; border-radius: 6px;
+  background: var(--yellow); color: var(--forest); font-size: 12.5px; font-weight: 500;
+}
+.wm {
+  margin-top: 22px;
+  font-family: var(--font-display), sans-serif; font-weight: 800;
+  font-size: clamp(44px, 5.4vw, 66px); line-height: 1; letter-spacing: 0.04em; color: var(--ink);
+  text-wrap: balance;
+}
+.tag { margin-top: 18px; font-size: 20px; line-height: 1.38; color: var(--ink); font-weight: 500; }
+.lede { margin-top: 14px; max-width: 520px; font-size: 16px; line-height: 1.55; color: var(--ink); }
+.quiet { margin-top: 22px; font-size: 13px; color: var(--label); }
+.ctarow { margin-top: 14px; display: inline-flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.cta { height: 48px; padding: 0 28px; font-size: 16px; }
+.google { background: var(--teal); border-color: transparent; color: var(--forest); }
+.google:hover { background: var(--teal); color: var(--forest); filter: brightness(0.96); }
+.backed { margin-top: 44px; display: flex; align-items: center; gap: 14px 18px; flex-wrap: wrap; font-family: var(--font-mono), monospace; font-size: 12px; color: var(--pencil); }
+.backed b { font-family: var(--font-sans), sans-serif; font-weight: 400; font-size: 12px; }
+
+.counter { position: relative; z-index: 1; display: grid; place-items: center; }
+.frame { position: relative; width: min(470px, 100%); }
+.sticky {
+  position: absolute; inset: -26px -18px -30px -22px; border-radius: 12px; background: var(--mint);
+  transform: rotate(-2.4deg); z-index: 0;
+}
+.tilt {
+  position: relative; z-index: 1; transform: rotate(3deg);
+  transition: transform 0.6s var(--ease);
+}
+.frame:hover .tilt { transform: rotate(1.2deg) translateY(-4px); }
+.cardobj { position: relative; width: 100%; aspect-ratio: 1.586; }
+.cardobj :global(.inner) { padding: 22px 26px; }
+.cardobj :global(.wm) { margin-top: 0; font-size: 17px; letter-spacing: 0.03em; }
+.sk1 { left: -40px; top: -54px; }
+.sk2 { right: -30px; bottom: -60px; }
+
+@media (max-width: 960px) {
+  .stage { grid-template-columns: 1fr; gap: 40px; padding: 110px 20px 56px; text-align: left; }
+  .counter { order: -1; }
+  .frame { width: min(400px, 92vw); }
+}
+@media (max-width: 560px) {
+  .wm { font-size: 40px; letter-spacing: 0.03em; }
+  .tag { font-size: 18px; }
+  .docslink { display: none; }
+  .sk1, .sk2 { display: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tilt { transition: none; }
+}
