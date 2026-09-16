@@ -62,8 +62,19 @@ export function parseKeeperHubRequestId(requestId: string | null | undefined): K
   return { surface: m[1] === "wf" ? "workflow" : "direct", executionId: m[2]! };
 }
 
+/**
+ * Which provisioned workflow carries this spend.
+ *
+ * `x402` and `admin` deliberately ride the `pay` workflow: they are ordinary
+ * redemptions on the same contract, and a separate workflow would only duplicate
+ * the definition. `settle` and `credit` get their own so a fiat settlement or a
+ * credit draw is separable in KeeperHub's own execution history — which is the
+ * audit trail an operator actually reads.
+ */
 export function workflowKeyFor(purpose: ExecutionPurpose | undefined): KeeperHubWorkflowKey {
-  return purpose === "credit" ? "credit" : "pay";
+  if (purpose === "credit") return "credit";
+  if (purpose === "settle") return "settle";
+  return "pay";
 }
 
 export type Bootstrap7702 = (authorizationList: Wire7702Auth[], chainId: ChainId) => Promise<Hex>;
@@ -301,7 +312,12 @@ export class KeeperHubExecutor implements Executor {
     }
 
     const workflowKey = workflowKeyFor(opts.purpose);
-    const workflowId = this.config.workflows[workflowKey] ?? (workflowKey === "credit" ? this.config.workflows.pay : null);
+    // credit and settle are the pay redemption with different bookkeeping, so an
+    // un-provisioned one falls back to `pay` rather than dropping to direct execution:
+    // the redemption still runs through a reviewed workflow either way.
+    const workflowId =
+      this.config.workflows[workflowKey] ??
+      (workflowKey === "credit" || workflowKey === "settle" ? this.config.workflows.pay : null);
     const idempotencyKey = `keepercard:redeem:${this.chainId}:${encoded.digest}`;
 
     return traceKeeperHub(

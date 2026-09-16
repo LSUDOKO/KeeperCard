@@ -48,7 +48,7 @@ export function makeFiatSettler(
         // same serialization as every other spend on this card tree; the engine's
         // settle mode re-drives THIS row (no new charge, budget already booked)
         const receipt = await deps.spendMutex.run(spendKey(deps.store, row.card_id), () =>
-          spend(spendDeps(deps), row.card_id, { kind: "fiat", mode: "pay", settleChargeId: chargeId }),
+          spend(spendDeps(deps), row.card_id, { kind: "fiat", mode: "pay", settleChargeId: chargeId, purpose: "settle" }),
         );
         if (receipt.status === "confirmed") {
           console.log(`[settle] charge ${chargeId} settled on-chain (tx ${receipt.tx})`);
