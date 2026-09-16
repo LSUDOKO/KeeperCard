@@ -80,6 +80,8 @@ export async function executeDraw(
       amountAtoms: args.amountAtoms,
       memo: args.memo ?? `credit draw ${lineId.slice(0, 10)}`,
       idempotencyKey: key,
+      // executed by KeeperHub's credit-line-draw-repay workflow (dry run -> exact execution)
+      purpose: "credit",
     }),
   );
 
@@ -138,6 +140,7 @@ export async function executeRepayment(
       amountAtoms: args.amountAtoms,
       memo: args.memo ?? `credit repayment ${lineId.slice(0, 10)}`,
       idempotencyKey: key,
+      purpose: "credit",
     }),
   );
 
