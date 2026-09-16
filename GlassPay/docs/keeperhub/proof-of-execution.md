@@ -1,9 +1,46 @@
 # Proof of execution — value moved through KeeperHub
 
 Submission requirement #3 asks for a link to a transaction executed through KeeperHub.
-This is that transaction, plus the checks that make it evidence rather than a claim.
+These are those transactions, plus the checks that make them evidence rather than claims.
 
-## The transaction
+| What | Chain | Transaction |
+|---|---|---|
+| USDC transfer, 1.50 USDC | Base Sepolia | [`0x88a28cef…d945eb9`](https://sepolia.basescan.org/tx/0x88a28cef9cec59c8a7a298507ac2de19eac20e42b589dfb9734da9f15d945eb9) |
+| `PaymentAnchor.anchorPayment` | Ethereum Sepolia | [`0x3eafda4b…c694a2f8`](https://sepolia.etherscan.io/tx/0x3eafda4b16c341b20de24d6868a4646c54881ab4f86a68941c5b69c3c694a2f8) |
+
+---
+
+## 1. USDC transfer on Base Sepolia — real value moved
+
+The clearest proof: a token balance changed.
+
+| | |
+|---|---|
+| Chain | Base Sepolia (84532) |
+| Tx | [`0x88a28cef…d945eb9`](https://sepolia.basescan.org/tx/0x88a28cef9cec59c8a7a298507ac2de19eac20e42b589dfb9734da9f15d945eb9) |
+| Token | USDC `0x036CbD53842c5426634e7929541eC2318f3dCF7e` |
+| Amount | 1.50 USDC |
+| KeeperHub execution | `ez4zskffia1iqmv3hjoz6` |
+| Block | 46895042 · `gasUsed` 124050 |
+
+Dry run first (`success: true`, `wouldRevert: false`, `gasEstimate: 62989`), then the
+same call re-sent with an idempotency key.
+
+Balances read from a public Base Sepolia RPC before and after:
+
+| Account | Before | After |
+|---|---|---|
+| `0x4F71…D441` (org wallet) | 20.00 USDC | **18.50 USDC** |
+| `0x66b6…EC5a` (recipient) | 0.00 USDC | **1.50 USDC** |
+
+`status: 0x1`, and the single `Transfer` log was emitted by the USDC contract itself.
+Money left one account and arrived in another — not a receipt, an actual transfer.
+
+---
+
+## 2. Cross-chain anchor on Ethereum Sepolia
+
+### The transaction
 
 | | |
 |---|---|
