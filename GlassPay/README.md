@@ -12,7 +12,9 @@ Agentic spending cards: scoped, revocable payment delegations that any AI agent 
 [![ERC-7710](https://img.shields.io/badge/ERC-7710-blue)](https://eips.ethereum.org/EIPS/eip-7710)
 [![Attestcoin](https://img.shields.io/badge/Attestcoin-Creditcoin%20CC3-00d18f)](https://creditcoin.org)
 
-Issue scoped, revocable spending cards from your wallet. Any agent plugs one in and pays within your limits: no keys, no gas, dead the moment you revoke. Built on Smart Accounts (ERC-7710), settled gaslessly by 1Shot, pays the open web with x402, and plugs into any agent over MCP.
+Issue scoped, revocable spending cards from your wallet. Any agent plugs one in and pays within your limits: no keys, no gas, dead the moment you revoke. Built on Smart Accounts (ERC-7710), **executed by [KeeperHub](https://keeperhub.com)**, pays the open web with x402, and plugs into any agent over MCP.
+
+**AttestPay decides what an agent is allowed to spend. KeeperHub moves the money.** The authorization layer — caveats, sub-cards, revocation — is AttestPay's. Nonce management, gas estimation, retries with backoff, MEV-aware routing and the execution audit trail are KeeperHub's. See [Execution Layer (KeeperHub)](#execution-layer-keeperhub) for the two transactions that prove it.
 
 Every confirmed payment is then **proven cross-chain onto Creditcoin** via the Attestcoin Protocol — no oracle, no bridge — building public, checkable credit history for the agent that spent. See [Cross-Chain Verification](#cross-chain-verification-attestcoin) for what that proves, and what it does not.
 
@@ -24,6 +26,7 @@ Every confirmed payment is then **proven cross-chain onto Creditcoin** via the A
 - [How a Payment Works](#how-a-payment-works)
 - [Agent Tools](#agent-tools)
 - [Connecting a Card to an Agent](#connecting-a-card-to-an-agent)
+- [Execution Layer (KeeperHub)](#execution-layer-keeperhub)
 - [Cross-Chain Verification (Attestcoin)](#cross-chain-verification-attestcoin)
 - [Credit Lines, Disputes and the Passport](#credit-lines-disputes-and-the-passport)
 - [Webhooks, Teams and the Audit Log](#webhooks-teams-and-the-audit-log)
@@ -155,6 +158,109 @@ claude mcp add --transport http remit https://<host>/mcp
 ```
 
 The client discovers the OAuth lane (RFC 9728 protected-resource metadata on the `401`), registers itself (Dynamic Client Registration), and opens a browser. You sign in with your existing dashboard login and pick which card to grant. The agent receives a short-lived, card-scoped, independently revocable access token, never the raw card secret. This is the lane OAuth-only clients such as ChatGPT require; it also works in Claude Code, claude.ai, Cursor, VS Code, Codex, Gemini CLI, Goose, opencode, Amp, and Factory Droid. Clients that complete OAuth out-of-band read the authorization code straight off the consent success screen: OpenClaw finishes with `openclaw mcp login remit --code <code>` (it runs no callback listener), and headless Hermes uses its paste-back flow the same way. The server is a self-hosted OAuth authorization server (public clients, PKCE S256, rotating refresh tokens); revoking the card kills every token issued for it.
+
+---
+
+## Execution Layer (KeeperHub)
+
+AttestPay used to move money with its own machinery: a 1Shot relayer call, an interval
+reconcile sweep, a fiat settlement timer, and a background anchor worker. All of that is
+bespoke infrastructure for a problem someone else has already solved properly. It is now
+[KeeperHub](https://keeperhub.com)'s job.
+
+The split is the whole point:
+
+| | Owns |
+|---|---|
+| **AttestPay** | *What may be spent* — ERC-7710 caveats, sub-cards, budgets, freeze/revoke/nuke, the NL compiler |
+| **KeeperHub** | *Moving it* — nonce management, gas estimation, retries with backoff, private routing, Turnkey signing, execution audit trail |
+
+Agents never improvise a payment. A workflow is composed, **dry-run without touching the
+chain**, reviewed, and then that exact reviewed plan executes. The calldata is hashed at
+dry-run time and the digest is carried into execution, so the bytes that run are the
+bytes that were reviewed — nothing is re-derived at execution time.
+
+### Verified transactions
+
+Both executed through KeeperHub, both independently checked against a public RPC rather
+than taken from KeeperHub's own reply.
+
+| What | Chain | Transaction |
+|---|---|---|
+| **USDC transfer** — real value moved | Base Sepolia | [`0x88a28cef…d945eb9`](https://sepolia.basescan.org/tx/0x88a28cef9cec59c8a7a298507ac2de19eac20e42b589dfb9734da9f15d945eb9) |
+| **`PaymentAnchor.anchorPayment`** — cross-chain proof, leg 1 | Ethereum Sepolia | [`0x3eafda4b…c694a2f8`](https://sepolia.etherscan.io/tx/0x3eafda4b16c341b20de24d6868a4646c54881ab4f86a68941c5b69c3c694a2f8) |
+
+The USDC transfer moved **1.50 USDC**, and the balances confirm it: the org wallet went
+`20.00 → 18.50` and the recipient `0.00 → 1.50`. The anchor flipped
+`isAnchored(84532, txHash)` from `false` to `true`. Both receipts report `status: 0x1`,
+and in both cases the emitting contract — not `receipt.to` — is the one that matters,
+because gas sponsorship wraps the call (see below).
+
+Full method, including what each check rules out:
+[`docs/keeperhub/proof-of-execution.md`](docs/keeperhub/proof-of-execution.md).
+
+### Live workflows
+
+Provisioned from code (`packages/engine/src/keeperhub/workflows.ts`) by
+`bun run --cwd packages/server keeperhub:provision`, which creates or updates by name, so
+ids are stable.
+
+| Workflow | Id | Replaces |
+|---|---|---|
+| `card-payment-redemption` | `o6iijkcr7tj83nj8ufbx6` | the 1Shot relayer call in `spend.ts` |
+| `attestcoin-cross-chain-proof` | `625tzb9kz8wfg3okjjlch` | the `attestcoin_sweep` state machine (leg 1) |
+| `credit-line-draw-repay` | `b8e0j3ghqajod6ow0hau5` | ad-hoc credit execution |
+
+### Agent tools
+
+| Tool | Purpose |
+|---|---|
+| `keeperhub_dry_run` | Compose and dry-run a payment through KeeperHub without touching the chain; returns the exact plan that would execute, as a `plan_id` |
+| `keeperhub_execution_status` | Status and step logs for an execution, scoped to the caller's card subtree |
+| `keeperhub_audit_trail` | KeeperHub's execution history merged with AttestPay's own charge ledger |
+
+`pay` accepts a `plan_id` from `keeperhub_dry_run` and executes that plan byte-for-byte.
+
+### Gas sponsorship, and why receipts look odd
+
+The org wallet held **0 ETH on every chain** when both transactions above ran.
+KeeperHub's gas sponsorship paid the fees through Turnkey's Gas Station, so the receipt's
+`from` is a relayer and its `to` is a sponsorship wrapper — not our wallet, not the target
+contract. That is expected on a sponsored route, and it is why verification reads the
+**log emitter** and the resulting **state change** instead of trusting `receipt.to`.
+
+Sponsorship covers the *fee only*. The assets a transaction moves always come from the
+wallet itself, which is why the USDC demo needed a funded wallet and the anchor did not.
+
+### Known limitations
+
+Stated plainly, because the brief asks what is unfinished:
+
+- **Creditcoin CC3 is not a KeeperHub chain.** `GET /api/chains` returns 24 chains and
+  none is Creditcoin. Leg 2 of the cross-chain proof (`AttestPayASC.verifyPayment`) stays
+  on AttestPay's direct RPC path. This was anticipated in the design, not discovered late:
+  see `packages/engine/src/keeperhub/anchor.ts` and `contracts/src/PaymentAnchor.sol`.
+- **`HTTP Request` is a Pro-plan action.** On the free plan a workflow containing one is
+  rejected wholesale with `402 upgrade_required`. The callbacks were only ever a *nudge* —
+  the hook handler always re-read the execution from KeeperHub's API before touching the
+  ledger — so AttestPay polls for the same record instead. Same source of truth, one extra
+  round trip. `stuck-charge-recovery` and `fiat-settlement-sweep` are schedule-plus-callback
+  and nothing else, so on a free plan they cannot exist as KeeperHub workflows at all;
+  AttestPay keeps its own timers for those two and says so at boot.
+- **The card-redemption workflow has not yet executed end to end on-chain.** It is
+  provisioned and validated, and the redemption path is covered by tests, but a live run
+  needs a card-owner wallet with USDC *and* a one-time EIP-7702 upgrade, which cannot be
+  gas-sponsored. The USDC transfer above proves KeeperHub moves real value on Base Sepolia;
+  it does not prove the full delegation-redemption path in production.
+
+### Health check
+
+```bash
+bun run --cwd packages/server keeperhub:doctor
+```
+
+Checks the key, org wallet, chain support, wallet gas, every configured workflow, the
+simulator, and spend-cap headroom. Exits non-zero on anything that would break a payment.
 
 ---
 
