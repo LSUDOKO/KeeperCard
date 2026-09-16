@@ -1,0 +1,77 @@
+# Render blueprint for the AttestPay API server.
+#
+# Docker, not a native runtime: the server uses bun:sqlite and Bun.serve.
+services:
+  - type: web
+    name: attestpay-api
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    region: oregon
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: PORT
+        value: "10000"
+      # SQLite path. On the free plan this is ephemeral — see the disk note below.
+      - key: ATTESTPAY_DB_PATH
+        value: /data/attestpay.sqlite
+      # Settlement chain. 8453 = Base mainnet (real USDC); 84532 = Base Sepolia, whose
+      # USDC comes from a free faucet. MUST match the dashboard's build-time
+      # NEXT_PUBLIC_ATTESTPAY_CHAIN_ID — a signed delegation carries the chain id, so a
+      # mismatch produces signatures the relayer cannot redeem.
+      - key: ATTESTPAY_CHAIN_ID
+        value: "84532"
+      # Browser origins allowed on /api/* and /shop/*: the Cloudflare Worker that
+      # serves the dashboard (docs/deployment-cloudflare.md). Comma-separated, exact match.
+      - key: ATTESTPAY_CORS_ORIGINS
+        value: https://attestpay-dashboard.adoranto737.workers.dev
+      # This service's own public origin. Without it, cardUrl() (mcp/server.ts) and the
+      # OAuth issuer/resource metadata (oauth/routes.ts) fall back to
+      # http://localhost:<PORT> — every minted card MCP URL is then unreachable from
+      # outside this container, which is exactly what an agent hitting one sees.
+      - key: ATTESTPAY_PUBLIC_MCP_BASE
+        value: https://attestpay-api.onrender.com
+      # Secrets: set in the Render dashboard, never committed.
+      - key: ATTESTPAY_MASTER_KEY
+        sync: false
+      - key: ATTESTPAY_ADMIN_TOKEN
+        sync: false
+      - key: ATTESTPAY_ATTESTCOIN_PRIVATE_KEY
+        sync: false
+      - key: ATTESTPAY_PRIVY_APP_ID
+        sync: false
+      # Attestcoin: deployed 2026-09-12, see docs/attestcoin-integration.md
+      - key: ATTESTPAY_PAYMENT_ANCHOR_ADDRESS
+        value: "0x881c55745372DfCB7dEC9B13F499b167164e2121"
+      - key: ATTESTPAY_ASC_ADDRESS
+        value: "0x881c55745372DfCB7dEC9B13F499b167164e2121"
+      - key: ATTESTPAY_ATTESTCOIN_CHAIN_KEY
+        value: "1"
+      - key: ATTESTPAY_SEPOLIA_RPC
+        value: https://ethereum-sepolia-rpc.publicnode.com
+      - key: ATTESTPAY_CREDITCOIN_HTTP_RPC
+        value: https://rpc.cc3-testnet.creditcoin.network
+      - key: ATTESTPAY_PROVER_API_URL
+        value: https://prover.cc3-testnet.creditcoin.network
+      # Credit lines, disputes, guarantees, passport: deployed 2026-09-12 (§16 of the doc)
+      - key: ATTESTPAY_FACT_ANCHOR_ADDRESS
+        value: "0xE984375956027C4989C6A806eBb2A1223607aefe"
+      - key: ATTESTPAY_CREDIT_LINE_ADDRESS
+        value: "0xe984375956027c4989c6a806ebb2a1223607aefe"
+      - key: ATTESTPAY_LEDGER_ADDRESS
+        value: "0x56733223c688cce7fc65826b692b3f8521e4ab3e"
+      - key: ATTESTPAY_GUARANTEE_ADDRESS
+        value: "0x3543bfcb460ab40acd3ba21c486eea285ce07f1b"
+      - key: ATTESTPAY_PASSPORT_ADDRESS
+        value: "0xfd1dc807ad1714c4c80a6c2145be200f61265b57"
+
+# NOTE ON PERSISTENCE
+# The free plan has no persistent disk, so /data resets on every deploy and on the
+# instance sleeping. That loses cards, delegations and the proof queue. For anything
+# beyond a demo, attach a disk (paid plan):
+#
+#   disk:
+#     name: attestpay-data
+#     mountPath: /data
+#     sizeGB: 1
