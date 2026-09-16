@@ -15,7 +15,7 @@ The `mcp_tool_*` spans and the trace-root HTTP spans are **code changes** — th
 
 ✅ **Quick sanity check** (endpoint is up):
 ```
-curl -s https://glasspay-production.up.railway.app/health
+curl -s https://attestpay-api.onrender.com/health
 ```
 → should return `{"ok":true,...}`
 
@@ -35,7 +35,7 @@ Telemetry only appears after real activity. Do this with Claude (MCP connector) 
 
 💡 No Claude handy? Trigger the webhook directly (expect `bad signature` — that's still a trace!):
 ```
-curl -s -X POST https://glasspay-production.up.railway.app/stripe/webhook \
+curl -s -X POST https://attestpay-api.onrender.com/stripe/webhook \
   -H 'content-type: application/json' -d '{"type":"test"}'
 ```
 

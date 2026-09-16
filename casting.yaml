@@ -60,7 +60,7 @@ services:
     image: signoz/signoz-otel-collector:0.119.3
     depends_on: [clickhouse]
     environment:
-      OTEL_RESOURCE_ATTRIBUTES: service.name=glasspay-collector
+      OTEL_RESOURCE_ATTRIBUTES: service.name=keepercard-collector
       SIGNOZ_OTEL_COLLECTOR_CLICKHOUSE_USER: admin
       SIGNOZ_OTEL_COLLECTOR_CLICKHOUSE_PASSWORD: ${SIGNOZ_CLICKHOUSE_PASSWORD:-attestpay_dev}
     ports:

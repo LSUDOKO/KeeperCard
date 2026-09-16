@@ -101,7 +101,7 @@
 **🎙️ Narrator:**
 "KeeperCard gives AI agents financial agency — with Guardrails. Budgets, expiry, real-time webhook enforcement, full observability. Agents that can spend, within limits you control. This is the future of AI × payments."
 
-**🎥 Screen:** glasspay.xyz / GitHub link
+**🎥 Screen:** GitHub: github.com/LSUDOKO/KeeperCard
 
 **🎙️ Narrator:**
 "KeeperCard. Give your agents a wallet."
@@ -128,6 +128,6 @@
 | Resource | URL |
 |----------|-----|
 | **Dashboard** | `https://glass-pay.vercel.app` |
-| **Railway (API)** | `https://glasspay-production.up.railway.app` |
+| **Railway (API)** | `https://attestpay-api.onrender.com` |
 | **SigNoz** | SigNoz cloud dashboard |
 | **Stripe Dashboard** | `https://dashboard.stripe.com` |
