@@ -26,7 +26,7 @@ import {
 } from "@attestpay/engine";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { AppDeps } from "../deps";
-import { explorerTx, presentExecution, presentPlan } from "../keeperhub/routes";
+import { explorerTx, presentExecution, presentPlan, presentRisk } from "../keeperhub/routes";
 
 type Run = (toolName: string, cardId: string, fn: () => Promise<unknown>) => Promise<{
   content: Array<{ type: "text"; text: string }>;
@@ -57,7 +57,7 @@ export function registerKeeperHubTools(
       {
         title: "Dry-run a payment through KeeperHub",
         description:
-          "Compose a USDC payment from this card and dry-run it through KeeperHub without touching the chain. Checks the card's terms, signs the exact redemption, and simulates it from the KeeperHub wallet that will execute it. Returns a plan_id, the simulation (gas estimate, redeemer) and the budget left afterwards. Show the plan to your user, then call `pay` with plan_id to execute exactly this plan: nothing is re-derived at execution time. Plans expire (see expires_at).",
+          "Compose a USDC payment from this card and dry-run it through KeeperHub without touching the chain. Checks the card's terms, signs the exact redemption, and simulates it from the KeeperHub wallet that will execute it. Returns a plan_id, the simulation (gas estimate, redeemer), KeeperHub's risk read on the calldata, and the budget left afterwards. Show the plan to your user, then call `pay` with plan_id to execute exactly this plan: nothing is re-derived at execution time. Plans expire (see expires_at).\n\nOn `risk`: `level` is low/medium/high/critical. When `advisory` is true the assessor did NOT reach a verdict (its backend failed and it returned a fail-closed default) — report it as unavailable rather than as a finding, and do not refuse the payment on it. When `advisory` is false, a high or critical level is a real finding: surface `reasoning` and `factors` to your user and get confirmation before calling `pay`.",
         inputSchema: {
           to: z.string().regex(/^0x[0-9a-fA-F]{40}$/).describe("recipient address"),
           amount: z.string().regex(/^\d+(\.\d{1,6})?$/).describe('USDC amount, decimal string, e.g. "1.50"'),
@@ -81,6 +81,7 @@ export function registerKeeperHubTools(
               ...plan,
               expires_at: iso(plan.expires_at),
               simulation: { ...plan.simulation, simulated_at: iso(plan.simulation.simulated_at) },
+              risk: presentRisk(plan.risk),
               next: `call pay with plan_id "${plan.plan_id}" to execute exactly this plan through KeeperHub`,
             };
           }),

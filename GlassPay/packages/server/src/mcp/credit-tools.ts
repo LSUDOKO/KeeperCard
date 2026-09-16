@@ -19,6 +19,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { AppDeps } from "../deps";
 import { executeDraw, executeRepayment, isoTime, lineView, planDraw } from "../attestcoin/credit-exec";
 import { disputeView, passportFor } from "../attestcoin/credit-routes";
+import { presentRisk } from "../keeperhub/routes";
 
 type Run = (toolName: string, cardId: string, fn: () => Promise<unknown>) => Promise<{
   content: Array<{ type: "text"; text: string }>;
@@ -104,6 +105,7 @@ export function registerCreditTools(server: McpServer, deps: AppDeps, card: Card
             ...plan,
             expires_at: isoTime(plan.expires_at),
             simulation: { ...plan.simulation, simulated_at: isoTime(plan.simulation.simulated_at) },
+            risk: presentRisk(plan.risk),
             line: lineView(line, now()),
             next: `call draw_credit with plan_id "${plan.plan_id}" to execute exactly this plan through KeeperHub`,
           };
