@@ -190,7 +190,8 @@ export function registerKeeperHubTools(
         return {
           executor: "keeperhub",
           charges: charges.map((ch) => {
-            const kh = records.filter((r) => r.charge_id === ch.id);
+            // records come newest-first; show each charge's lifecycle in order (dry run, then run)
+            const kh = records.filter((r) => r.charge_id === ch.id).reverse();
             return {
               charge_id: ch.id,
               card_id: ch.card_id,
