@@ -57,6 +57,14 @@ export type WorkflowBuildOptions = {
   paymentAnchorAddress?: Address | null;
   anchorChainId?: number;
   gasLimitMultiplier?: string;
+  /**
+   * Emit the HTTP Request callback nodes. KeeperHub gates the `HTTP Request` action
+   * behind the Pro plan, so this is off unless the org's plan allows it. The callbacks
+   * are only ever a nudge (see the header note), so without them AttestPay polls
+   * KeeperHub for the same execution record instead of being pushed — same source of
+   * truth, same ledger writes, one extra round trip.
+   */
+  hooksEnabled?: boolean;
   notify?: NotificationChannels;
   schedules?: { recovery?: string; settle?: string };
 };
@@ -135,22 +143,26 @@ function redemptionWorkflow(key: "pay" | "credit", opts: WorkflowBuildOptions): 
         0,
         "DelegationManager.redeemDelegations(permissionContexts, modes, executionCallDatas)",
       ),
-      hookRequest(
-        "report",
-        "Report To AttestPay",
-        opts,
-        "execution",
-        {
-          workflow: name,
-          digest: `{{@${t}:${tLabel}.digest}}`,
-          chargeId: `{{@${t}:${tLabel}.chargeId}}`,
-          cardId: `{{@${t}:${tLabel}.cardId}}`,
-          transactionHash: "{{@redeem:Redeem Delegations.transactionHash}}",
-        },
-        560,
-      ),
+      ...(opts.hooksEnabled
+        ? [
+            hookRequest(
+              "report",
+              "Report To AttestPay",
+              opts,
+              "execution",
+              {
+                workflow: name,
+                digest: `{{@${t}:${tLabel}.digest}}`,
+                chargeId: `{{@${t}:${tLabel}.chargeId}}`,
+                cardId: `{{@${t}:${tLabel}.cardId}}`,
+                transactionHash: "{{@redeem:Redeem Delegations.transactionHash}}",
+              },
+              560,
+            ),
+          ]
+        : []),
     ],
-    edges: [edge(t, "redeem"), edge("redeem", "report")],
+    edges: opts.hooksEnabled ? [edge(t, "redeem"), edge("redeem", "report")] : [edge(t, "redeem")],
   };
 }
 
@@ -204,7 +216,11 @@ export function hasNotificationChannel(n: NotificationChannels | undefined): boo
   return !!(n.discordIntegrationId || (n.telegramIntegrationId && n.telegramChatId) || (n.sendgridIntegrationId && n.emailTo) || n.webhookUrl);
 }
 
-function recoveryWorkflow(opts: WorkflowBuildOptions): WorkflowDefinition {
+function recoveryWorkflow(opts: WorkflowBuildOptions): WorkflowDefinition | null {
+  // The schedule exists purely to call back into AttestPay, so without the HTTP
+  // Request action there is no workflow left to build — a lone trigger is invalid.
+  // AttestPay keeps its own reconcile timer in that case (see index.ts).
+  if (!opts.hooksEnabled) return null;
   const nodes: WorkflowNode[] = [
     trigger("schedule", "Every Five Minutes", {
       triggerType: "Schedule",
@@ -238,7 +254,9 @@ function recoveryWorkflow(opts: WorkflowBuildOptions): WorkflowDefinition {
   };
 }
 
-function settleWorkflow(opts: WorkflowBuildOptions): WorkflowDefinition {
+function settleWorkflow(opts: WorkflowBuildOptions): WorkflowDefinition | null {
+  // Same as recoveryWorkflow: schedule + callback is the whole workflow.
+  if (!opts.hooksEnabled) return null;
   return {
     name: KEEPERHUB_WORKFLOW_NAMES.settle,
     description: `${MARKER} Replaces ATTESTPAY_FIAT_SETTLE_INTERVAL_MS. On a KeeperHub schedule, AttestPay lists approved-but-unsettled Visa charges and settles each one on-chain through card-payment-redemption.`,
@@ -280,20 +298,24 @@ function anchorWorkflow(opts: WorkflowBuildOptions): WorkflowDefinition | null {
         0,
         "PaymentAnchor.anchorPayment(cardId, payer, merchant, amount, sourceChainId, sourceTxHash, paidAt, memo)",
       ),
-      hookRequest(
-        "report",
-        "Report Anchor To AttestPay",
-        opts,
-        "anchored",
-        {
-          workflow: KEEPERHUB_WORKFLOW_NAMES.anchor,
-          chargeId: `{{@${t}:${tLabel}.chargeId}}`,
-          transactionHash: "{{@anchor:Anchor Payment.transactionHash}}",
-        },
-        560,
-      ),
+      ...(opts.hooksEnabled
+        ? [
+            hookRequest(
+              "report",
+              "Report Anchor To AttestPay",
+              opts,
+              "anchored",
+              {
+                workflow: KEEPERHUB_WORKFLOW_NAMES.anchor,
+                chargeId: `{{@${t}:${tLabel}.chargeId}}`,
+                transactionHash: "{{@anchor:Anchor Payment.transactionHash}}",
+              },
+              560,
+            ),
+          ]
+        : []),
     ],
-    edges: [edge(t, "anchor"), edge("anchor", "report")],
+    edges: opts.hooksEnabled ? [edge(t, "anchor"), edge("anchor", "report")] : [edge(t, "anchor")],
   };
 }
 
@@ -318,7 +340,8 @@ export function buildWorkflowDefinitions(opts: WorkflowBuildOptions): Record<Kee
   if (!/^https?:\/\//.test(opts.publicBaseUrl)) {
     throw new Error(`publicBaseUrl must be an absolute http(s) URL, got ${opts.publicBaseUrl}`);
   }
-  if (opts.hookSecret.length < 24) throw new Error("hookSecret must be at least 24 characters");
+  // Only meaningful when callbacks exist; the free plan has no HTTP Request node to carry it.
+  if (opts.hooksEnabled && opts.hookSecret.length < 24) throw new Error("hookSecret must be at least 24 characters");
   return {
     pay: redemptionWorkflow("pay", opts),
     credit: redemptionWorkflow("credit", opts),
