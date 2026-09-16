@@ -216,11 +216,36 @@ ids are stable.
 
 | Tool | Purpose |
 |---|---|
-| `keeperhub_dry_run` | Compose and dry-run a payment through KeeperHub without touching the chain; returns the exact plan that would execute, as a `plan_id` |
+| `keeperhub_dry_run` | Compose and dry-run a payment through KeeperHub without touching the chain; returns the exact plan that would execute, as a `plan_id`, plus a risk read on the calldata |
 | `keeperhub_execution_status` | Status and step logs for an execution, scoped to the caller's card subtree |
 | `keeperhub_audit_trail` | KeeperHub's execution history merged with AttestPay's own charge ledger |
+| `dry_run_draw` | The same review-then-execute flow for a credit draw |
 
-`pay` accepts a `plan_id` from `keeperhub_dry_run` and executes that plan byte-for-byte.
+`pay` accepts a `plan_id` from `keeperhub_dry_run` and executes that plan byte-for-byte;
+`draw_credit` does the same with a `plan_id` from `dry_run_draw`.
+
+### Risk, guards and attestation
+
+Three further KeeperHub surfaces carry their weight here, and each is wired with the same
+rule: an advisory signal must never silently become a gate.
+
+- **Risk read on every dry run** (`web3/assess-risk`). The verdict — level, score, decoded
+  function, reasoning — rides back on the plan. KeeperHub's assessor is *fail-closed*: when
+  its AI backend is unavailable it answers `high`/70 with a factor saying the analysis
+  failed. Gating on that would refuse every payment whenever an upstream service is down, so
+  the client marks it `advisory` and the agent is told to report it as unavailable rather
+  than as a finding. A real `high` is surfaced for confirmation; a fallback is not.
+- **A funding floor on the settlement sweep** (`check-and-execute`). The balance read and
+  the guarded write happen in one KeeperHub request, so the balance cannot move between
+  deciding and acting. Below `ATTESTPAY_SETTLE_MIN_USDC_ATOMS` the sweep is skipped instead
+  of burning gas on redemptions that can only revert. If the guard cannot be evaluated the
+  sweep proceeds — a balance oracle being down must not stop settlement.
+- **Chain attestation** (`web3/query-events`, `GET /api/keeperhub/attestation`). Every other
+  surface reports what AttestPay *believes*. This one reads the `PaymentAnchored` events the
+  chain actually holds and reconciles them against the local records, in three buckets:
+  `matched`, `unwitnessed` (no event in the scanned window — bounded, so never stated as
+  "did not happen") and `unrecorded` (on-chain with no local row, which is the direction
+  worth investigating). The dashboard shows all three.
 
 ### Gas sponsorship, and why receipts look odd
 
