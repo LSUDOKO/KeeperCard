@@ -32,7 +32,7 @@ import { atomsToUsdc, parseAtoms, usdcToAtoms } from "./money";
 import { emitRefusalLog, emitChargeLog, usdcSpentTotal, chargesTotal } from "./telemetry";
 import { executorVerifiesReceipts, type ExecutionPurpose, type Executor } from "./executor";
 import { encodeRedemption } from "./keeperhub/calldata";
-import { parsePlanContext } from "./keeperhub/executor";
+import { parseKeeperHubRequestId, parsePlanContext } from "./keeperhub/executor";
 import type { KeeperHubStore, SpendPlanRow } from "./keeperhub/store";
 import type { RelayerTransaction } from "./relayer";
 import { periodWindow, type CardRow, type ChargeKind, type ChargeRow, type Store } from "./store";
@@ -966,7 +966,9 @@ export async function reconcilePending(
   // cutoff defaults to 10 min (>> confirmRedemption's 90s timeout): a tx unmined this
   // long on Base (2s blocks) is genuinely dropped, so failing it can't race a late mine.
   const cutoff = now - (opts.olderThanSeconds ?? 600);
-  const stale = deps.store.pendingChargesOlderThan(cutoff);
+  // KeeperHub-executed rows are never resolved from fee logs: KeeperHub owns their
+  // nonce/gas/retry lifecycle and its verified status is the answer (reconcileKeeperHub)
+  const stale = deps.store.pendingChargesOlderThan(cutoff).filter((c) => !parseKeeperHubRequestId(c.request_id));
   // x402 reservations that never reached a relayer broadcast (request_id null) leak
   // budget if the inline finalize was lost; free them after a generous TTL.
   const x402Cutoff = now - (opts.olderThanSeconds ?? 600) * 6; // ~1h default
@@ -1058,6 +1060,59 @@ export async function reconcilePending(
     }
   }
   return { reconciled, stillPending };
+}
+
+// ---------------------------------------------------------------------------
+// stuck-charge-recovery: charges KeeperHub executed but whose inline confirmation
+// timed out. KeeperHub already handles what makes a transaction stuck (nonce
+// management, gas re-pricing, retries with backoff), so recovery is a question, not a
+// re-send: ask KeeperHub for the verified outcome and settle the ledger from it.
+// `unconfirmed` / running stays pending; it is never re-broadcast from here.
+// ---------------------------------------------------------------------------
+
+export type KeeperHubRecoveryResult = {
+  examined: number;
+  confirmed: number;
+  failed: number;
+  still_pending: number;
+  charges: Array<{ charge_id: string; card_id: string; status: string; tx: Hex | null; execution: string }>;
+};
+
+export async function reconcileKeeperHub(
+  deps: SpendDeps,
+  opts: { olderThanSeconds?: number; limit?: number } = {},
+): Promise<KeeperHubRecoveryResult> {
+  const now = deps.now ? deps.now() : Math.floor(Date.now() / 1000);
+  const cutoff = now - (opts.olderThanSeconds ?? 60);
+  const rows = deps.store
+    .pendingChargesOlderThan(cutoff)
+    .filter((c) => parseKeeperHubRequestId(c.request_id))
+    .slice(0, opts.limit ?? 100);
+  const out: KeeperHubRecoveryResult = { examined: rows.length, confirmed: 0, failed: 0, still_pending: 0, charges: [] };
+
+  for (const charge of rows) {
+    const execution = charge.request_id!;
+    const st = await deps.relayer.getStatus(execution);
+    if (st.status === 200) {
+      deps.store.updateCharge(charge.id, { status: "confirmed", tx_hash: st.txHash ?? undefined });
+      usdcSpentTotal.add(Number(atomsToUsdc(charge.amount_atoms)));
+      chargesTotal.add(1);
+      emitChargeLog("confirmed", charge.card_id, atomsToUsdc(charge.amount_atoms), charge.kind);
+      notifyConfirmed(deps, charge.id, charge.card_id);
+      out.confirmed++;
+      out.charges.push({ charge_id: charge.id, card_id: charge.card_id, status: "confirmed", tx: st.txHash, execution });
+    } else if (st.status === 500) {
+      // an approved Visa charge never releases its budget: flag it for ops instead
+      const status = charge.kind === "fiat" ? "settlement_unconfirmed" : "failed";
+      deps.store.updateCharge(charge.id, { status, tx_hash: st.txHash ?? undefined });
+      out.failed++;
+      out.charges.push({ charge_id: charge.id, card_id: charge.card_id, status, tx: st.txHash, execution });
+    } else {
+      out.still_pending++;
+      out.charges.push({ charge_id: charge.id, card_id: charge.card_id, status: "pending", tx: st.txHash, execution });
+    }
+  }
+  return out;
 }
 
 // ---------------------------------------------------------------------------
