@@ -5,7 +5,7 @@
 // on timers. Either way the logic lives in exactly one place.
 
 import { trace } from "@opentelemetry/api";
-import { attestcoin, reconcileKeeperHub, reconcilePending, type KeeperHubRecoveryResult } from "@attestpay/engine";
+import { CHAIN_ID, CHAINS, attestcoin, reconcileKeeperHub, reconcilePending, type KeeperHubRecoveryResult } from "@attestpay/engine";
 import { spendDeps, type AppDeps } from "../deps";
 
 const otel = trace.getTracer("attestpay-server");
@@ -56,11 +56,73 @@ export async function runRecovery(deps: AppDeps, opts: { chargeIds?: string[]; i
   });
 }
 
+/**
+ * Does the account the settlement pays from still hold enough USDC to be worth a sweep?
+ *
+ * Read through KeeperHub's `check-and-execute`, whose point is that the read and the
+ * conditional write happen in one request — so the balance cannot move between deciding
+ * and acting the way it can when a caller reads, decides, then sends separately. Here
+ * the action leg is deliberately a no-op self-transfer of 0: the sweep itself does the
+ * paying, and all this needs is the guarded read.
+ *
+ * Returns null when the guard could not be evaluated. Null means "unknown", and the
+ * caller sweeps anyway — a balance oracle being unavailable must not stop settlement.
+ */
+async function settlementFundsAvailable(deps: AppDeps, minAtoms: bigint): Promise<{ ok: boolean; observed: string | null } | null> {
+  const kh = deps.keeperhub;
+  if (!kh?.client || !kh.config) return null;
+  try {
+    const wallet = await deps.relayer.delegateAddress();
+    const usdc = CHAINS[CHAIN_ID].usdc;
+    const r = await kh.client.checkAndExecute({
+      chainId: CHAIN_ID,
+      check: {
+        contractAddress: usdc,
+        functionName: "balanceOf",
+        functionArgs: JSON.stringify([wallet]),
+        abi: JSON.stringify(ERC20_BALANCE_ABI),
+      },
+      condition: { operator: "gte", value: minAtoms.toString() },
+      action: {
+        contractAddress: usdc,
+        functionName: "transfer",
+        functionArgs: JSON.stringify([wallet, "0"]),
+        abi: JSON.stringify(ERC20_TRANSFER_ABI),
+      },
+    });
+    return { ok: r.condition.met, observed: r.condition.observedValue };
+  } catch {
+    return null;
+  }
+}
+
+const ERC20_BALANCE_ABI = [
+  { type: "function", name: "balanceOf", stateMutability: "view", inputs: [{ name: "account", type: "address" }], outputs: [{ type: "uint256" }] },
+] as const;
+
+const ERC20_TRANSFER_ABI = [
+  { type: "function", name: "transfer", stateMutability: "nonpayable", inputs: [{ name: "to", type: "address" }, { name: "amount", type: "uint256" }], outputs: [{ type: "bool" }] },
+] as const;
+
 /** fiat-settlement-sweep: approved Visa rows re-driven through spend(). */
-export async function runFiatSettlement(deps: AppDeps): Promise<{ enabled: boolean; settled: number; left: number }> {
+export async function runFiatSettlement(deps: AppDeps): Promise<{ enabled: boolean; settled: number; left: number; skipped?: string }> {
   if (!deps.fiatSettler) return { enabled: false, settled: 0, left: 0 };
   const settler = deps.fiatSettler;
   return span("fiat_settle_sweep", async (set) => {
+    // A sweep with nothing to pay from burns gas on redemptions that can only revert.
+    const min = BigInt(process.env.ATTESTPAY_SETTLE_MIN_USDC_ATOMS ?? "0");
+    if (min > 0n) {
+      const guard = await settlementFundsAvailable(deps, min);
+      if (guard) {
+        set("guard_observed", guard.observed ?? "unknown");
+        if (!guard.ok) {
+          const msg = `settlement account holds ${guard.observed ?? "?"} USDC atoms, below the ${min} floor`;
+          set("skipped", msg);
+          console.log(`[settle] sweep skipped: ${msg}`);
+          return { enabled: true, settled: 0, left: 0, skipped: msg };
+        }
+      }
+    }
     const r = await settler.sweep();
     set("settled", r.settled);
     set("left", r.left);
