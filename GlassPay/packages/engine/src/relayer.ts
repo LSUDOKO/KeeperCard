@@ -26,6 +26,12 @@ export type EstimateResult = {
   context: string | null;
   error: string | null;
   raw: unknown;
+  /**
+   * KeeperHub's advisory risk read on the redemption calldata, when the executor
+   * supports it. Null on the legacy relayer, and null when the read failed — a risk
+   * service being down never blocks a payment.
+   */
+  risk?: import("./keeperhub/client").RiskAssessment | null;
 };
 
 export type FeeData = {

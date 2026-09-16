@@ -91,6 +91,9 @@ export type KeeperHubExecutorOptions = {
    * brand-new account is submitted by this hook first, then the redemption proceeds
    * through KeeperHub. Absent = a typed error telling the operator what to set. */
   bootstrap7702?: Bootstrap7702 | null;
+  /** Read KeeperHub's risk verdict during the dry run. Advisory, and on by default;
+   * set false to skip the extra call. */
+  assessRisk?: boolean;
 };
 
 export class KeeperHubExecutor implements Executor {
@@ -98,6 +101,7 @@ export class KeeperHubExecutor implements Executor {
   readonly chainId: ChainId;
   readonly client: KeeperHubClient;
   readonly config: KeeperHubConfig;
+  private readonly assessRisk: boolean;
   private readonly store: KeeperHubStore | null;
   private readonly now: () => number;
   private readonly sleep: (ms: number) => Promise<void>;
@@ -112,6 +116,7 @@ export class KeeperHubExecutor implements Executor {
     this.now = opts.now ?? (() => Date.now());
     this.sleep = opts.sleep ?? ((ms) => new Promise((r) => setTimeout(r, ms)));
     this.bootstrap7702 = opts.bootstrap7702 ?? null;
+    this.assessRisk = opts.assessRisk ?? true;
     this.wallet = opts.config.walletAddress;
   }
 
@@ -268,13 +273,32 @@ export class KeeperHubExecutor implements Executor {
 
         keeperhubDryRunsTotal.add(1, { outcome: "ok" });
         if (sim.gasEstimate) span.setAttribute("keeperhub.gas_estimate", sim.gasEstimate);
+
+        // Advisory only, and never fatal: a risk service that is down must not take
+        // payments down with it, so a failure here is recorded and the plan proceeds.
+        const risk = this.assessRisk
+          ? await this.client
+              .assessRisk({
+                calldata: encoded.data,
+                chainId: this.chainId,
+                contractAddress: DELEGATION_MANAGER,
+                senderAddress: sim.from ?? undefined,
+              })
+              .catch(() => null)
+          : null;
+        if (risk?.level) {
+          span.setAttribute("keeperhub.risk_level", risk.level);
+          span.setAttribute("keeperhub.risk_advisory", risk.advisory);
+          if (risk.score !== null) span.setAttribute("keeperhub.risk_score", risk.score);
+        }
+
         record("simulated", null);
         const context = encodePlanContext({
           digest: encoded.digest,
           simulatedAt: this.nowSec(),
           gasEstimate: sim.gasEstimate,
         });
-        return { success: true, requiredPaymentAmount: null, context, error: null, raw: sim.raw };
+        return { success: true, requiredPaymentAmount: null, context, error: null, raw: sim.raw, risk };
       },
     );
   }
