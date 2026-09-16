@@ -124,7 +124,7 @@ export function buildChildDelegation(args: {
   };
 }
 
-/** Leaf carve for a spend: delegate MUST be the relayer targetAddress. Scope from
+/** Leaf carve for a spend: delegate MUST be the executor's redeeming address. Scope from
  * compiler.payLeafScope / contractLeafScope. extraCaveats append to the scope's set
  * (e.g. AllowedCalldata approve pins); the SDK merges both into the signed caveat array. */
 export function carveLeafDelegation(args: {
@@ -134,12 +134,14 @@ export function carveLeafDelegation(args: {
   extraCaveats?: WireCaveat[];
   salt?: Hex;
   chainId?: ChainId;
+  /** the executor's redeeming address (KeeperHub org wallet); defaults to the legacy relayer target */
+  delegate?: Address;
 }): WireDelegation {
   const chainId = args.chainId ?? CHAIN_ID;
   const leaf = createDelegation({
     environment: getSmartAccountsEnvironment(chainId),
     from: args.from,
-    to: CHAINS[chainId].targetAddress,
+    to: args.delegate ?? CHAINS[chainId].targetAddress,
     parentDelegation: args.parent as never,
     scope: args.scope,
     ...(args.extraCaveats?.length ? { caveats: args.extraCaveats as never } : {}),
