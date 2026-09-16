@@ -84,7 +84,7 @@ Everything runs on Base mainnet with real USDC; the only simulated leg is the Vi
 1. You sign in to the dashboard (Privy embedded wallet, Google login) and issue a card with terms, set by hand in the composer or drafted from a plain-language request by the Venice-powered NL compiler (the model only names tokens, protocols, and merchants; the server resolves every address from its own verified registry, and you still review and sign the draft).
 2. The dashboard compiles the terms into on-chain caveats (delegation-framework enforcers). Your wallet signs the delegation in the browser; the server stores it alongside a fresh agent key that holds nothing.
 3. You hand the card URL to any agent (one `claude mcp add`, a Cursor deeplink, a pasted connector URL).
-4. When the agent calls `pay`, the server validates the terms, then redeems the delegation through the 1Shot relayer: gasless, on Base mainnet, settled in USDC from your wallet.
+4. When the agent calls `pay`, the server validates the terms, dry-runs the redemption through KeeperHub, and then executes that exact reviewed plan: gasless, on Base, settled in USDC from your wallet. (`ATTESTPAY_EXECUTOR=1shot` still selects the legacy 1Shot relayer as a rollback lane.)
 5. Every charge lands in the card's ledger with memo, fee, and tx hash.
 
 The agent never sees a private key, never holds a balance, and never needs ETH. The first spend even deploys your wallet's 7702 smart-account code automatically in the same transaction.
@@ -562,7 +562,7 @@ Key pieces:
 - **Caveat compiler** (`engine/src/compiler.ts`): turns human terms (`{"pay": {"period": {"amount": "25", "seconds": 604800}}}`) into delegation-framework enforcer caveats.
 - **NL compiler** (`server/src/venice/`): Venice AI turns a plain-language request into a plan of named entities + numbers; the server resolves every name against its own verified registry (model output can never place an address in a draft) and assembles a `CardTerms` draft for the user to review and sign.
 - **Issuance**: server prepares an unsigned delegation, the user's wallet signs it in the browser (prepare/finalize), so the server never holds the user's key for client-signed cards.
-- **Spend** (`engine/src/spend.ts`): validates terms server-side, then redeems the delegation chain through the 1Shot Public Relayer (which calls `DelegationManager.redeemDelegations` on-chain on your behalf), attaching the user's EIP-7702 authorization on first spend.
+- **Spend** (`engine/src/spend.ts`): validates terms server-side, then redeems the delegation chain through the configured `Executor` — KeeperHub by default, the legacy 1Shot relayer under `ATTESTPAY_EXECUTOR=1shot` — which calls `DelegationManager.redeemDelegations` on-chain on your behalf. A first spend from a never-upgraded account submits the user's EIP-7702 authorization first (`keeperhub/bootstrap.ts`), because KeeperHub sends ordinary type-2 transactions.
 - **Sub-cards**: ERC-7710 redelegations. Caps only narrow. Revoking a parent kills the subtree.
 - **Two payment rails off one delegation**: x402 (real USDC, live) and Stripe Issuing real-time auth (test mode, fiat leg simulated honestly).
 - **MCP server**: stateless Streamable HTTP, identity = the card credential on every request, no sessions.
