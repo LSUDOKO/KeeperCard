@@ -1,0 +1,5 @@
+[test]
+# Tests assert against Base (8453) addresses, and chains.ts resolves CHAIN_ID once at
+# module load from the ambient environment. Without this the suite fails for anyone
+# whose .env targets another chain (e.g. ATTESTPAY_CHAIN_ID=84532 for Base Sepolia).
+preload = ["./test-setup.ts"]
