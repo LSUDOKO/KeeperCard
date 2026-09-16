@@ -15,6 +15,11 @@ Agentic spending cards: scoped, revocable payment delegations that any AI agent 
 
 Issue scoped, revocable spending cards from your wallet. Any agent plugs one in and pays within your limits: no keys, no gas, dead the moment you revoke. Built on Smart Accounts (ERC-7710), **executed by [KeeperHub](https://keeperhub.com)**, pays the open web with x402, and plugs into any agent over MCP.
 
+**Live:** [dashboard](https://keepercard-dashboard.adoranto737.workers.dev) ·
+[execution console](https://keepercard-dashboard.adoranto737.workers.dev/keeperhub) ·
+[API](https://keepercard-api.onrender.com/health)
+(the API is on Render's free tier, so the first request after idle takes ~50s to wake).
+
 > **A note on names.** The product is **KeeperCard**. Internal identifiers still read
 > `AttestPay` — the workspace scopes (`@attestpay/*`), the `ATTESTPAY_*` environment
 > variables, and the deployed Solidity contracts (`AttestPayASC`, `AttestPayCreditLine`,
