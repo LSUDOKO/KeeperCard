@@ -19,7 +19,7 @@ import { withAgentAccount } from "./custody";
 import { carveLeafDelegation, erc20TransferExecution, signWithPrivateKey, wireDelegation } from "./delegations";
 import { EngineError, RefusalError } from "./errors";
 import { atomsToUsdc, parseAtoms, usdcToAtoms } from "./money";
-import type { Relayer } from "./relayer";
+import { executorVerifiesReceipts, type Executor } from "./executor";
 import type { Store } from "./store";
 import { assertChainSpendable, confirmRedemption, delegationForMode, jitteredFee, resolveStoredAuth, validateSpend, type SpendDeps } from "./spend";
 import { publicClient } from "./chains";
@@ -166,7 +166,7 @@ export function decodeX402Delegations(permissionContext: Hex): WireDelegation[] 
 }
 
 export type X402SettleDeps = {
-  relayer: Relayer;
+  relayer: Executor;
   chainId?: ChainId;
   feeJitter?: (baseAtoms: bigint) => bigint;
   confirmViaChain?: boolean;
@@ -236,10 +236,13 @@ export async function verifyX402(
   }
   if (!delegations.length) return { isValid: false, invalidReason: "empty_permission_context" };
   const leaf = delegations[0]!;
-  if (leaf.delegate.toLowerCase() !== CHAINS[chainId].targetAddress.toLowerCase()) {
+  const redeemer =
+    typeof deps.relayer.delegateAddress === "function" ? await deps.relayer.delegateAddress() : CHAINS[chainId].targetAddress;
+  if (leaf.delegate.toLowerCase() !== redeemer.toLowerCase()) {
+    const lane = deps.relayer.kind === "keeperhub" ? "KeeperHub" : "the 1Shot relayer";
     return {
       isValid: false,
-      invalidReason: `leaf_not_redeemable: this facilitator settles via the 1Shot relayer; the leaf delegation's delegate must be ${CHAINS[chainId].targetAddress}`,
+      invalidReason: `leaf_not_redeemable: this facilitator settles via ${lane}; the leaf delegation's delegate must be ${redeemer}`,
     };
   }
   const root = delegations[delegations.length - 1]!;
@@ -330,15 +333,23 @@ export async function settleX402(
     }
     if (!est.context) throw new EngineError("x402", "settle estimate returned no context");
 
-    const viaChain = deps.confirmViaChain ?? true;
+    const viaChain = deps.confirmViaChain ?? !executorVerifiesReceipts(deps.relayer);
     const sinceBlock = viaChain ? await publicClient(chainId).getBlockNumber() : 0n;
     const requestId = await deps.relayer.send(
       [{ permissionContext: delegations, executions }],
       est.context,
       authorizationList,
+      { purpose: "x402" },
     );
     const confirmation = viaChain
-      ? await confirmRedemption(deps.relayer, { requestId, delegator: body.delegator, feeAtoms, sinceBlock, chainId })
+      ? await confirmRedemption(deps.relayer, {
+          requestId,
+          delegator: body.delegator,
+          feeAtoms,
+          sinceBlock,
+          chainId,
+          feeCollector: feeData.feeCollector,
+        })
       : await deps.relayer.waitForStatus(requestId).then((s) => ({
           status: s.status === 200 ? ("confirmed" as const) : s.status === 500 ? ("failed" as const) : ("pending" as const),
           txHash: s.txHash,
