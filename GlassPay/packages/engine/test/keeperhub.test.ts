@@ -24,6 +24,7 @@ import {
   keeperhubDisabledReason,
   parseKeeperHubRequestId,
   parsePlanContext,
+  workflowKeyFor,
   type KeeperHubConfig,
 } from "../src/keeperhub";
 import { planSpend, reconcileKeeperHub, spend, type SpendDeps } from "../src/spend";
@@ -495,6 +496,22 @@ describe("spend through KeeperHub", () => {
     expect(res.confirmed).toBe(1);
     expect(w.store.listCharges(w.cardId)[0]!.status).toBe("confirmed");
     expect(confirmed.length).toBe(1);
+  });
+});
+
+describe("workflow routing", () => {
+  test("each purpose selects the workflow whose history should record it", () => {
+    expect(workflowKeyFor("pay")).toBe("pay");
+    expect(workflowKeyFor("credit")).toBe("credit");
+    // regression: `settle` used to fall through to `pay`, so KEEPERHUB_WORKFLOW_SETTLE
+    // was provisioned and then never executed against.
+    expect(workflowKeyFor("settle")).toBe("settle");
+  });
+
+  test("x402 and admin redemptions ride the pay workflow", () => {
+    expect(workflowKeyFor("x402")).toBe("pay");
+    expect(workflowKeyFor("admin")).toBe("pay");
+    expect(workflowKeyFor(undefined)).toBe("pay");
   });
 });
 
