@@ -395,6 +395,96 @@ export async function publicCall<T>(path: string, init?: RequestInit): Promise<T
   return body as T;
 }
 
+// ---------------------------------------------------------------------------
+// KeeperHub — the execution layer
+// ---------------------------------------------------------------------------
+
+/** Mirrors keeperhub.KeeperHubAction: what the execution was for. */
+export type KeeperHubAction = "dry_run" | "execute" | "anchor" | "notify";
+
+/** KeeperHub's own terminal vocabulary, plus the pre-flight states AttestPay adds. */
+export type KeeperHubStatus = "simulated" | "pending" | "unconfirmed" | "completed" | "failed" | "cancelled";
+
+export type KeeperHubExecution = {
+  id: number;
+  execution_id: string;
+  /** "workflow" ran a provisioned workflow; "direct" used /execute/contract-call */
+  surface: "workflow" | "direct";
+  workflow: string | null;
+  workflow_id: string | null;
+  action: KeeperHubAction;
+  status: KeeperHubStatus;
+  card_id: string | null;
+  charge_id: string | null;
+  /** keccak of the calldata: the same value in the dry run and the execution */
+  digest: string | null;
+  chain_id: number | null;
+  tx_hash: string | null;
+  tx_url: string | null;
+  error: string | null;
+  detail: Record<string, unknown> | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type KeeperHubStats = {
+  dry_runs: number;
+  executions: number;
+  failures: number;
+  retries: number;
+} | null;
+
+export type KeeperHubStatus_ = {
+  executor: string;
+  enabled: boolean;
+  disabled_reason: string | null;
+  chain_id: number;
+  chain: string;
+  wallet: string | null;
+  wallet_error: string | null;
+  api_base: string | null;
+  mcp_url: string | null;
+  dry_run_required: boolean | null;
+  plan_ttl_seconds: number | null;
+  gas_fee_usdc: string | null;
+  hooks_configured: boolean;
+  anchoring_via_keeperhub: boolean;
+  workflows: { key: string; name: string; id: string | null }[];
+  stats_24h: KeeperHubStats;
+};
+
+export type KeeperHubNode = { id: string; label: string; type: string };
+
+export type KeeperHubRun = {
+  id?: string;
+  status?: string;
+  createdAt?: string;
+  [k: string]: unknown;
+};
+
+export type KeeperHubWorkflow = {
+  key: string;
+  name: string;
+  id: string | null;
+  provisioned: boolean;
+  enabled?: boolean | null;
+  description?: string | null;
+  nodes?: KeeperHubNode[];
+  edges?: { source: string; target: string; handle: string | null }[];
+  runs: KeeperHubRun[];
+  error?: string;
+};
+
+/** One step of a workflow run, as KeeperHub reports it. */
+export type KeeperHubLog = {
+  node: string | null;
+  type: string | null;
+  status: string | null;
+  error: string | null;
+  duration_ms: number | null;
+  output: unknown;
+};
+
 export const api = {
   // --- Privy lane: onboard + client-signed issuance ---
   // proof = personal_sign("attestpay-onboard:v1:<did>") · binds the wallet to THIS login
@@ -546,4 +636,13 @@ export const api = {
   addMember: (id: string, address: string, role: TeamRole) => call<Team>(`/teams/${id}/members`, { method: "POST", body: JSON.stringify({ address, role }) }),
   removeMember: (id: string, userId: string) => call<{ removed: boolean }>(`/teams/${id}/members/${userId}`, { method: "DELETE" }),
   assignTeam: (cardId: string, teamId: string | null) => call<{ team: { team_id: string; name: string } | null }>(`/cards/${cardId}/team`, { method: "POST", body: JSON.stringify({ team_id: teamId }) }),
+
+  // --- KeeperHub: the execution layer ---
+  keeperhubStatus: () => call<KeeperHubStatus_>("/keeperhub/status"),
+  keeperhubWorkflows: () => call<{ workflows: KeeperHubWorkflow[] }>("/keeperhub/workflows"),
+  keeperhubExecutions: (limit = 50) => call<{ executions: KeeperHubExecution[] }>(`/keeperhub/executions?limit=${limit}`),
+  /** Re-reads the run from KeeperHub before answering, so `record` is verified, not cached. */
+  keeperhubExecution: (executionId: string) =>
+    call<{ record: KeeperHubExecution; live: unknown; logs: KeeperHubLog[] | null }>(`/keeperhub/executions/${executionId}`),
+  keeperhubForCard: (cardId: string) => call<{ executions: KeeperHubExecution[] }>(`/cards/${cardId}/keeperhub`),
 };
