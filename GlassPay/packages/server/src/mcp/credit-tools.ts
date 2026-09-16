@@ -1,6 +1,7 @@
 // The credit MCP tools: what an AGENT can do with the credit it has earned.
 //
 //   credit_lines     — the lines open to this card's funding account, with room left
+//   dry_run_draw     — rehearse a draw through KeeperHub and get a reviewable plan_id
 //   draw_credit      — pull funds from a line into the funding account
 //   repay_credit     — pay a line down from this card
 //   dispute_payment  — contest a payment this card made
@@ -16,7 +17,7 @@ import { z } from "zod";
 import { RefusalError, attestcoin as ac, usdcToAtoms, type CardRow } from "@attestpay/engine";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { AppDeps } from "../deps";
-import { executeDraw, executeRepayment, lineView } from "../attestcoin/credit-exec";
+import { executeDraw, executeRepayment, isoTime, lineView, planDraw } from "../attestcoin/credit-exec";
 import { disputeView, passportFor } from "../attestcoin/credit-routes";
 
 type Run = (toolName: string, cardId: string, fn: () => Promise<unknown>) => Promise<{
@@ -78,20 +79,53 @@ export function registerCreditTools(server: McpServer, deps: AppDeps, card: Card
     );
 
     server.registerTool(
+      "dry_run_draw",
+      {
+        title: "Dry-run a credit draw through KeeperHub",
+        description:
+          "Rehearse a draw without touching the chain. Runs every check draw_credit runs (line limit, expiry, the lender's card terms), signs the exact redemption and simulates it from the KeeperHub wallet that would execute it. Returns a plan_id plus the gas estimate and the room left on the line. Show it to your user, then call draw_credit with plan_id to execute exactly this plan — nothing is re-derived at execution time. Plans expire (see expires_at).",
+        inputSchema: {
+          line_id: z.string().regex(/^0x[0-9a-fA-F]{64}$/).describe("the line id from credit_lines"),
+          amount: z.string().regex(/^\d+(\.\d{1,6})?$/).describe("USDC amount, decimal string"),
+          memo: z.string().max(280).optional(),
+          idempotency_key: z.string().max(128).optional().describe("carried into the executed draw"),
+        },
+        annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+      },
+      async (args: { line_id: string; amount: string; memo?: string; idempotency_key?: string }) =>
+        run("dry_run_draw", card.id, async () => {
+          const line = myLine(args.line_id);
+          const { plan } = await planDraw(deps, line.id, {
+            amountAtoms: usdcToAtoms(args.amount),
+            memo: args.memo,
+            idempotencyKey: args.idempotency_key,
+          });
+          return {
+            ...plan,
+            expires_at: isoTime(plan.expires_at),
+            simulation: { ...plan.simulation, simulated_at: isoTime(plan.simulation.simulated_at) },
+            line: lineView(line, now()),
+            next: `call draw_credit with plan_id "${plan.plan_id}" to execute exactly this plan through KeeperHub`,
+          };
+        }),
+    );
+
+    server.registerTool(
       "draw_credit",
       {
         title: "Draw on a credit line",
         description:
-          "Draw USDC from a credit line into this card's funding account. The lender's funding card pays; the transfer confirms on Base in seconds and is then proven into Creditcoin. Refused (typed) when the amount exceeds what is available, the line has expired, or the lender's card declines. Use idempotency_key to make retries safe.",
+          "Draw USDC from a credit line into this card's funding account. The lender's funding card pays; the transfer confirms on Base in seconds and is then proven into Creditcoin. Refused (typed) when the amount exceeds what is available, the line has expired, or the lender's card declines. Pass plan_id from dry_run_draw to execute a reviewed plan byte-for-byte; use idempotency_key to make retries safe.",
         inputSchema: {
           line_id: z.string().regex(/^0x[0-9a-fA-F]{64}$/).describe("the line id from credit_lines"),
           amount: z.string().regex(/^\d+(\.\d{1,6})?$/).describe("USDC amount, decimal string"),
           memo: z.string().max(280).optional(),
           idempotency_key: z.string().max(128).optional().describe("same key -> same draw (safe retries)"),
+          plan_id: z.string().max(128).optional().describe("a plan_id from dry_run_draw: executes those exact bytes"),
         },
         annotations: { destructiveHint: true, idempotentHint: true, openWorldHint: false },
       },
-      async (args: { line_id: string; amount: string; memo?: string; idempotency_key?: string }) =>
+      async (args: { line_id: string; amount: string; memo?: string; idempotency_key?: string; plan_id?: string }) =>
         run("draw_credit", card.id, async () => {
           const line = myLine(args.line_id);
           const r = await executeDraw(deps, line.id, {
@@ -99,6 +133,7 @@ export function registerCreditTools(server: McpServer, deps: AppDeps, card: Card
             memo: args.memo,
             idempotencyKey: args.idempotency_key,
             actorCardId: card.id,
+            planId: args.plan_id,
           });
           return {
             status: r.receipt.status,
