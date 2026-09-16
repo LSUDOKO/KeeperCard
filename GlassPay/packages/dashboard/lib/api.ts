@@ -473,6 +473,37 @@ export type KeeperHubStatus_ = {
 
 export type KeeperHubNode = { id: string; label: string; type: string };
 
+/** One PaymentAnchored event as the chain holds it. */
+export type AnchorWitness = {
+  tx_hash: string | null;
+  block_number: number | null;
+  card_id: string | null;
+  payer: string | null;
+  merchant: string | null;
+  amount: string | null;
+  source_chain_id: string | null;
+  source_tx_hash: string | null;
+  memo: string | null;
+};
+
+/**
+ * AttestPay's anchor records checked against the chain's own events. Only the scanned
+ * window is covered, so `unwitnessed` means "no event in this range", never "did not
+ * happen" — the window is carried so a reader can tell the difference.
+ */
+export type AttestationReport = {
+  from_block: number | null;
+  to_block: number | null;
+  chain_id: number;
+  contract: string;
+  matched: AnchorWitness[];
+  unwitnessed: Array<{ tx_hash: string | null; execution_id: string | null; charge_id: string | null; created_at: string }>;
+  unrecorded: AnchorWitness[];
+  error: string | null;
+  summary: { matched: number; unwitnessed: number; unrecorded: number };
+  note: string;
+};
+
 export type KeeperHubRun = {
   id?: string;
   status?: string;
@@ -663,4 +694,6 @@ export const api = {
   keeperhubExecution: (executionId: string) =>
     call<{ record: KeeperHubExecution; live: unknown; logs: KeeperHubLog[] | null }>(`/keeperhub/executions/${executionId}`),
   keeperhubForCard: (cardId: string) => call<{ executions: KeeperHubExecution[] }>(`/cards/${cardId}/keeperhub`),
+  /** Operator view: local anchor records reconciled against the chain's own events. */
+  keeperhubAttestation: (blocks = 6500) => call<AttestationReport>(`/keeperhub/attestation?blocks=${blocks}`),
 };
