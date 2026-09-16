@@ -1,6 +1,6 @@
 # Deploying the dashboard to Cloudflare Workers
 
-**Live:** https://attestpay-dashboard.adoranto737.workers.dev
+**Live:** https://keepercard-dashboard.adoranto737.workers.dev
 
 ## Why OpenNext and not a static export
 
@@ -34,8 +34,8 @@ worth doing before a deploy — it catches Node-API use that `next build` does n
 ## Current deployment
 
 Deployed 2026-09-13 (Worker version `b64cd9c4`) from the sketchbook redesign, built with
-`NEXT_PUBLIC_ATTESTPAY_API=https://attestpay-api.onrender.com/api`, so the bundle talks to
-the Render API (`render.yaml`, service `attestpay-api`). The Privy app id and client id
+`NEXT_PUBLIC_ATTESTPAY_API=https://keepercard-api.onrender.com/api`, so the bundle talks to
+the Render API (`render.yaml`, service `keepercard-api`). The Privy app id and client id
 fall back to the public defaults in `lib/chain.ts`, so they need no build variable.
 
 Routes verified live after deploy: `/`, `/app`, `/docs`, `/connect`, `/settings`, `/shop`,
@@ -46,7 +46,7 @@ Two things must be true on the Render side before a visitor can sign in and onbo
 1. The API has to be booting: its secrets (`ATTESTPAY_MASTER_KEY`, `ATTESTPAY_ADMIN_TOKEN`,
    `ATTESTPAY_ATTESTCOIN_PRIVATE_KEY`, `ATTESTPAY_PRIVY_APP_ID`) are set only in the Render
    dashboard, never committed.
-2. `ATTESTPAY_CORS_ORIGINS` must include `https://attestpay-dashboard.adoranto737.workers.dev`
+2. `ATTESTPAY_CORS_ORIGINS` must include `https://keepercard-dashboard.adoranto737.workers.dev`
    (it is in `render.yaml`; the server defaults to `http://localhost:4071` otherwise, and
    the browser will see a CORS failure on every `/api/*` call).
 

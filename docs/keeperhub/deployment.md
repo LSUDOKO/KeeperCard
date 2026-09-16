@@ -10,19 +10,19 @@ into the bundle. Building with the wrong chain id produces signatures the execut
 redeem, because a signed delegation carries the chain id.
 
 ```bash
-export NEXT_PUBLIC_ATTESTPAY_API="https://attestpay-api.onrender.com/api"
+export NEXT_PUBLIC_ATTESTPAY_API="https://keepercard-api.onrender.com/api"
 export NEXT_PUBLIC_ATTESTPAY_CHAIN_ID="84532"        # MUST match the API's ATTESTPAY_CHAIN_ID
 bun run --cwd packages/dashboard cf:build
 bun run --cwd packages/dashboard cf:deploy
 ```
 
-Live at `https://attestpay-dashboard.adoranto737.workers.dev`. The execution console is at
+Live at `https://keepercard-dashboard.adoranto737.workers.dev`. The execution console is at
 `/keeperhub`, behind the ordinary Privy sign-in.
 
 Verify the right values were baked in before trusting a deploy:
 
 ```bash
-grep -rho "attestpay-api.onrender.com[^\"']*" packages/dashboard/.open-next | sort -u
+grep -rho "keepercard-api.onrender.com[^\"']*" packages/dashboard/.open-next | sort -u
 ```
 
 ## 2. API — Render
@@ -46,8 +46,8 @@ it matches by name, so ids stay stable.
 ### Confirm it took
 
 ```bash
-curl -s https://attestpay-api.onrender.com/health
-curl -s https://attestpay-api.onrender.com/facilitator/supported | grep -o '"rail":"[^"]*"'
+curl -s https://keepercard-api.onrender.com/health
+curl -s https://keepercard-api.onrender.com/facilitator/supported | grep -o '"rail":"[^"]*"'
 ```
 
 `"rail":"keeperhub"` means the execution layer is live. `"rail":"1shot-public-relayer"`

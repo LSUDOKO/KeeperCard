@@ -3,7 +3,7 @@
 # Docker, not a native runtime: the server uses bun:sqlite and Bun.serve.
 services:
   - type: web
-    name: attestpay-api
+    name: keepercard-api
     runtime: docker
     dockerfilePath: ./Dockerfile
     plan: free
@@ -25,13 +25,13 @@ services:
       # Browser origins allowed on /api/* and /shop/*: the Cloudflare Worker that
       # serves the dashboard (docs/deployment-cloudflare.md). Comma-separated, exact match.
       - key: ATTESTPAY_CORS_ORIGINS
-        value: https://attestpay-dashboard.adoranto737.workers.dev
+        value: https://keepercard-dashboard.adoranto737.workers.dev
       # This service's own public origin. Without it, cardUrl() (mcp/server.ts) and the
       # OAuth issuer/resource metadata (oauth/routes.ts) fall back to
       # http://localhost:<PORT> — every minted card MCP URL is then unreachable from
       # outside this container, which is exactly what an agent hitting one sees.
       - key: ATTESTPAY_PUBLIC_MCP_BASE
-        value: https://attestpay-api.onrender.com
+        value: https://keepercard-api.onrender.com
       # --- KeeperHub: the execution layer -------------------------------------
       # Without KEEPERHUB_API_KEY the server FAILS LOUDLY on every payment rather than
       # silently no-op'ing; ATTESTPAY_EXECUTOR=1shot is the rollback lane.
@@ -92,6 +92,6 @@ services:
 # beyond a demo, attach a disk (paid plan):
 #
 #   disk:
-#     name: attestpay-data
+#     name: keepercard-data
 #     mountPath: /data
 #     sizeGB: 1
