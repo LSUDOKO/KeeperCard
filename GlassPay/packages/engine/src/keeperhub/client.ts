@@ -95,6 +95,32 @@ export type RiskAssessment = {
   raw: unknown;
 };
 
+/**
+ * Solidity integers support all six; `address` and `bytes1..32` support eq/neq only.
+ */
+export type ConditionOperator = "eq" | "neq" | "gt" | "lt" | "gte" | "lte";
+
+export type CheckAndExecuteRequest = {
+  chainId: number;
+  /** the read: must resolve to exactly one supported scalar */
+  check: { contractAddress: Address; functionName: string; functionArgs: string; abi: string };
+  /** `value` is a BigInt-compatible decimal or hex string */
+  condition: { operator: ConditionOperator; value: string };
+  /** the write, executed only when the condition holds; it never forwards native value */
+  action: { contractAddress: Address; functionName: string; functionArgs: string; abi: string; gasLimitMultiplier?: string };
+};
+
+export type CheckAndExecuteResult = {
+  /** false when the condition did not hold — an answer, not a failure */
+  executed: boolean;
+  executionId: string | null;
+  status: string | null;
+  transactionHash: Hex | null;
+  condition: { met: boolean; observedValue: string | null; targetValue: string | null; operator: ConditionOperator };
+  error: string | null;
+  raw: unknown;
+};
+
 export type EventQueryRequest = {
   contractAddress: Address;
   chainId: number;
@@ -530,6 +556,53 @@ export class KeeperHubClient {
       fromBlock: r.fromBlock === undefined || r.fromBlock === null ? null : Number(r.fromBlock),
       toBlock: r.toBlock === undefined || r.toBlock === null ? null : Number(r.toBlock),
       error: str(r.error),
+    };
+  }
+
+  /**
+   * Read one on-chain value, compare it, and write only if the comparison holds — with
+   * the read and the write in the same request, so nothing can change between them the
+   * way it can when a caller reads, decides, and then sends.
+   *
+   * A condition that does not hold is a *success* with `executed: false`. It is the
+   * answer, not a failure, and callers must not treat it as one.
+   */
+  async checkAndExecute(req: CheckAndExecuteRequest, idempotencyKey?: string): Promise<CheckAndExecuteResult> {
+    const { json } = await this.request("check_and_execute", "/execute/check-and-execute", {
+      method: "POST",
+      body: {
+        contractAddress: req.check.contractAddress,
+        chainId: req.chainId,
+        functionName: req.check.functionName,
+        functionArgs: req.check.functionArgs,
+        abi: req.check.abi,
+        condition: { operator: req.condition.operator, value: req.condition.value },
+        action: {
+          contractAddress: req.action.contractAddress,
+          functionName: req.action.functionName,
+          functionArgs: req.action.functionArgs,
+          abi: req.action.abi,
+          ...(req.action.gasLimitMultiplier ? { gasLimitMultiplier: req.action.gasLimitMultiplier } : {}),
+        },
+      },
+      idempotencyKey,
+      acceptStatuses: [400],
+    });
+    const r = asRecord(json);
+    const cond = asRecord(r.conditionResult);
+    return {
+      executed: r.executed === true,
+      executionId: str(r.executionId),
+      status: str(r.status),
+      transactionHash: (str(r.transactionHash) as Hex | null) ?? null,
+      condition: {
+        met: cond.met === true,
+        observedValue: str(cond.observedValue),
+        targetValue: str(cond.targetValue),
+        operator: (str(cond.operator) as ConditionOperator | null) ?? req.condition.operator,
+      },
+      error: str(r.error),
+      raw: json,
     };
   }
 
