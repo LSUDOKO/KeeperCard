@@ -430,3 +430,40 @@ describe("fiat settlement funding guard", () => {
     expect(r.settled).toBe(1);
   });
 });
+
+// ---------------------------------------------------------------------------
+// EIP-7702 sponsor key: the operator-facing format contract
+// ---------------------------------------------------------------------------
+
+describe("7702 sponsor key parsing", () => {
+  const BARE = "39".repeat(32); // 64 hex chars, no prefix
+  const ORIGINAL = process.env.ATTESTPAY_7702_SPONSOR_PK;
+  afterAll(() => {
+    if (ORIGINAL === undefined) delete process.env.ATTESTPAY_7702_SPONSOR_PK;
+    else process.env.ATTESTPAY_7702_SPONSOR_PK = ORIGINAL;
+  });
+
+  /** deps.ts's normalisation, kept in lockstep with it. */
+  const normalise = (raw: string | undefined) =>
+    raw?.trim() ? (raw.trim().startsWith("0x") ? raw.trim() : `0x${raw.trim()}`) : undefined;
+
+  test("a bare-hex key is accepted, because operators copy it from other key vars", () => {
+    // ATTESTPAY_ATTESTCOIN_PRIVATE_KEY is stored bare, so a copied sponsor key is too.
+    // Before normalisation this failed deep inside viem with "invalid private key",
+    // far from the env var that caused it.
+    const pk = normalise(BARE)!;
+    expect(pk).toBe(`0x${BARE}`);
+    expect(() => privateKeyToAccount(pk as `0x${string}`)).not.toThrow();
+  });
+
+  test("an already-prefixed key is left alone", () => {
+    expect(normalise(`0x${BARE}`)).toBe(`0x${BARE}`);
+  });
+
+  test("unset stays unset, so the executor keeps its typed refusal", () => {
+    // No sponsor must NOT become "0x": the executor's smart_account_not_upgraded error
+    // is what tells the operator which variable to set.
+    expect(normalise(undefined)).toBeUndefined();
+    expect(normalise("   ")).toBeUndefined();
+  });
+});
