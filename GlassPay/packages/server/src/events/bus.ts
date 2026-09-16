@@ -11,7 +11,11 @@ import { EventStore, type EventRow, type EventType } from "./store";
 
 export type Actor = { kind: "admin" | "user" | "card" | "system"; id: string };
 
+export type EventListener = (ev: EventRow) => void;
+
 export class EventBus {
+  private readonly listeners: EventListener[] = [];
+
   constructor(
     readonly events: EventStore,
     private readonly store: Store,
@@ -33,7 +37,23 @@ export class EventBus {
         this.events.enqueueDelivery({ webhook_id: w.id, event_id: ev.id, event_type: type, payload_json: payload }, now);
       }
     }
+    for (const l of this.listeners) {
+      try {
+        l(ev);
+      } catch {
+        /* a listener (e.g. the KeeperHub notification relay) must never fail an emit */
+      }
+    }
     return ev;
+  }
+
+  /** In-process listener for every emitted event. Must be cheap and non-blocking. */
+  subscribe(listener: EventListener): () => void {
+    this.listeners.push(listener);
+    return () => {
+      const i = this.listeners.indexOf(listener);
+      if (i >= 0) this.listeners.splice(i, 1);
+    };
   }
 
   /** Writes an audit entry. Never throws: an audit failure must not fail the action. */
