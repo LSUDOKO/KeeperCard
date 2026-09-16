@@ -64,11 +64,26 @@ if (wallet) {
   }
 }
 
+// recovery and settle are nothing but a schedule calling back into AttestPay, so on a
+// plan without the `HTTP Request` action they cannot exist and AttestPay keeps its own
+// timers. Absent is then correct, not a fault.
+const features = await client.features().catch(() => null);
+const hooksEnabled = features?.usableFeatureIds.has(keeperhub.HTTP_REQUEST_FEATURE_ID) ?? true;
+if (features) {
+  (hooksEnabled ? ok : warn)(
+    hooksEnabled
+      ? `plan ${features.plan} · HTTP Request available, workflows call back`
+      : `plan ${features.plan} · HTTP Request is Pro-gated, AttestPay polls instead`,
+  );
+}
+
 for (const key of keeperhub.KEEPERHUB_WORKFLOW_KEYS) {
   const id = config.workflows[key];
   const name = keeperhub.KEEPERHUB_WORKFLOW_NAMES[key];
+  const hookOnly = key === "recovery" || key === "settle";
   if (!id) {
-    (key === "pay" || key === "recovery" ? bad : warn)(`${name}: no workflow id configured (run keeperhub:provision)`);
+    if (hookOnly && !hooksEnabled) ok(`${name}: not on KeeperHub (needs Pro's HTTP Request) · AttestPay runs its own timer`);
+    else (key === "pay" || key === "recovery" ? bad : warn)(`${name}: no workflow id configured (run keeperhub:provision)`);
     continue;
   }
   try {
@@ -99,7 +114,9 @@ if (wallet) {
 }
 
 const publicBase = process.env.ATTESTPAY_PUBLIC_MCP_BASE;
-if (publicBase && config.hookSecret) {
+if (!hooksEnabled) {
+  ok("no workflow calls back on this plan: hook endpoint not exercised");
+} else if (publicBase && config.hookSecret) {
   try {
     const res = await fetch(`${publicBase.replace(/\/+$/, "")}/api/keeperhub/hooks/settle`, {
       method: "POST",
