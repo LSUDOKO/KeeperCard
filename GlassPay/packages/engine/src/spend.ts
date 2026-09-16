@@ -1080,13 +1080,15 @@ export type KeeperHubRecoveryResult = {
 
 export async function reconcileKeeperHub(
   deps: SpendDeps,
-  opts: { olderThanSeconds?: number; limit?: number } = {},
+  opts: { olderThanSeconds?: number; limit?: number; /** only these charges (a hook nudge) */ chargeIds?: string[] } = {},
 ): Promise<KeeperHubRecoveryResult> {
   const now = deps.now ? deps.now() : Math.floor(Date.now() / 1000);
-  const cutoff = now - (opts.olderThanSeconds ?? 60);
+  // store filter is strict (created_at < cutoff): a nudge must also see a charge booked this second
+  const cutoff = opts.chargeIds ? now + 1 : now - (opts.olderThanSeconds ?? 60);
+  const only = opts.chargeIds ? new Set(opts.chargeIds) : null;
   const rows = deps.store
     .pendingChargesOlderThan(cutoff)
-    .filter((c) => parseKeeperHubRequestId(c.request_id))
+    .filter((c) => parseKeeperHubRequestId(c.request_id) && (!only || only.has(c.id)))
     .slice(0, opts.limit ?? 100);
   const out: KeeperHubRecoveryResult = { examined: rows.length, confirmed: 0, failed: 0, still_pending: 0, charges: [] };
 
