@@ -17,7 +17,7 @@ Issue scoped, revocable spending cards from your wallet. Any agent plugs one in 
 
 **Live:** [dashboard](https://keepercard-dashboard.adoranto737.workers.dev) ·
 [execution console](https://keepercard-dashboard.adoranto737.workers.dev/keeperhub) ·
-[API](https://keepercard-api.onrender.com/health)
+[API](https://attestpay-api.onrender.com/health)
 (the API is on Render's free tier, so the first request after idle takes ~50s to wake).
 
 > **A note on names.** The product is **KeeperCard**. Internal identifiers still read

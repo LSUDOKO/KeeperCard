@@ -34,7 +34,7 @@ worth doing before a deploy — it catches Node-API use that `next build` does n
 ## Current deployment
 
 Deployed 2026-09-13 (Worker version `b64cd9c4`) from the sketchbook redesign, built with
-`NEXT_PUBLIC_ATTESTPAY_API=https://keepercard-api.onrender.com/api`, so the bundle talks to
+`NEXT_PUBLIC_ATTESTPAY_API=https://attestpay-api.onrender.com/api`, so the bundle talks to
 the Render API (`render.yaml`, service `keepercard-api`). The Privy app id and client id
 fall back to the public defaults in `lib/chain.ts`, so they need no build variable.
 

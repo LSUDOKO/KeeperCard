@@ -10,7 +10,7 @@ into the bundle. Building with the wrong chain id produces signatures the execut
 redeem, because a signed delegation carries the chain id.
 
 ```bash
-export NEXT_PUBLIC_ATTESTPAY_API="https://keepercard-api.onrender.com/api"
+export NEXT_PUBLIC_ATTESTPAY_API="https://attestpay-api.onrender.com/api"
 export NEXT_PUBLIC_ATTESTPAY_CHAIN_ID="84532"        # MUST match the API's ATTESTPAY_CHAIN_ID
 bun run --cwd packages/dashboard cf:build
 bun run --cwd packages/dashboard cf:deploy
@@ -22,10 +22,16 @@ Live at `https://keepercard-dashboard.adoranto737.workers.dev`. The execution co
 Verify the right values were baked in before trusting a deploy:
 
 ```bash
-grep -rho "keepercard-api.onrender.com[^\"']*" packages/dashboard/.open-next | sort -u
+grep -rho "attestpay-api.onrender.com[^\"']*" packages/dashboard/.open-next | sort -u
 ```
 
 ## 2. API — Render
+
+> **Why the host says `attestpay-api`.** Render pins the hostname a service was *created*
+> with. The service is named `keepercard-api`, but renaming it does not move the domain, so
+> its URL stays `https://attestpay-api.onrender.com`. Only a new service, or a custom
+> domain, would change the host — and recreating it would mean re-entering every secret.
+> The dashboard is built against the real host, not the service name.
 
 The blueprint is `render.yaml`. Non-secret KeeperHub values (workflow ids, wallet, the
 dry-run gate) are declared there; anything `sync: false` must be set by hand.
@@ -46,8 +52,8 @@ it matches by name, so ids stay stable.
 ### Confirm it took
 
 ```bash
-curl -s https://keepercard-api.onrender.com/health
-curl -s https://keepercard-api.onrender.com/facilitator/supported | grep -o '"rail":"[^"]*"'
+curl -s https://attestpay-api.onrender.com/health
+curl -s https://attestpay-api.onrender.com/facilitator/supported | grep -o '"rail":"[^"]*"'
 ```
 
 `"rail":"keeperhub"` means the execution layer is live. `"rail":"1shot-public-relayer"`

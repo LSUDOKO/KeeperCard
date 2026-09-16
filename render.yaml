@@ -3,6 +3,9 @@
 # Docker, not a native runtime: the server uses bun:sqlite and Bun.serve.
 services:
   - type: web
+    # NOTE: the service is named keepercard-api, but Render keeps the hostname a service
+    # was CREATED with, so its public URL remains attestpay-api.onrender.com. Renaming does
+    # not move the domain; only a new service (or a custom domain) would change the host.
     name: keepercard-api
     runtime: docker
     dockerfilePath: ./Dockerfile
@@ -31,7 +34,7 @@ services:
       # http://localhost:<PORT> — every minted card MCP URL is then unreachable from
       # outside this container, which is exactly what an agent hitting one sees.
       - key: ATTESTPAY_PUBLIC_MCP_BASE
-        value: https://keepercard-api.onrender.com
+        value: https://attestpay-api.onrender.com
       # --- KeeperHub: the execution layer -------------------------------------
       # Without KEEPERHUB_API_KEY the server FAILS LOUDLY on every payment rather than
       # silently no-op'ing; ATTESTPAY_EXECUTOR=1shot is the rollback lane.
