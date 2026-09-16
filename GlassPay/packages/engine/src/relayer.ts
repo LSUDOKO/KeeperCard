@@ -8,6 +8,7 @@ import { trace } from "@opentelemetry/api";
 import type { Address, Hex } from "viem";
 import { CHAINS, CHAIN_ID, type ChainId } from "./chains";
 import { EngineError } from "./errors";
+import type { Executor, SendOptions } from "./executor";
 import type { Wire7702Auth, WireDelegation, WireExecution } from "./types";
 
 const tracer = trace.getTracer("attestpay-engine");
@@ -52,7 +53,10 @@ export type RelayerStatus = {
 
 let rpcId = 1;
 
-export class Relayer {
+/** LEGACY execution lane (ATTESTPAY_EXECUTOR=1shot). KeeperHub is the default executor;
+ * see keeperhub/executor.ts. Kept for one release so a rollback is a config change. */
+export class Relayer implements Executor {
+  readonly kind = "1shot" as const;
   readonly chainId: ChainId;
   private caps: Capabilities | null = null;
 
@@ -80,6 +84,11 @@ export class Relayer {
       throw new EngineError("relayer", `${method}: non-JSON response (http ${res.status}): ${text.slice(0, 200)}`);
     }
     return { result: json.result, error: json.error };
+  }
+
+  /** Every 1Shot leaf delegation names the relayer's target address as its delegate. */
+  async delegateAddress(): Promise<Address> {
+    return CHAINS[this.chainId].targetAddress;
   }
 
   /** Cached: targetAddress/feeCollector/token list. Params = FLAT array of decimal chainId strings. */
@@ -162,7 +171,12 @@ export class Relayer {
   }
 
   /** Returns the relayer REQUEST ID (0x-hex). NOT an on-chain tx hash. */
-  async send(transactions: RelayerTransaction[], context: string, authorizationList?: Wire7702Auth[]): Promise<string> {
+  async send(
+    transactions: RelayerTransaction[],
+    context: string,
+    authorizationList?: Wire7702Auth[],
+    _opts?: SendOptions,
+  ): Promise<string> {
     const params: Record<string, unknown> = { chainId: String(this.chainId), transactions, context };
     if (authorizationList?.length) params.authorizationList = authorizationList;
     return tracer.startActiveSpan("1shot_relayer_redeem", async (span) => {
