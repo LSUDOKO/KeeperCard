@@ -335,6 +335,19 @@ function Run({ x, open, onOpen }: { x: KeeperHubExecution; open: boolean; onOpen
         <span className="khrunwhen">{ago(x.created_at)}</span>
       </button>
 
+      {/* The hash is the evidence — it belongs on the row, not only behind a click. */}
+      {x.tx_hash && !open ? (
+        <div className="khruntx">
+          {x.tx_url ? (
+            <a className="mono khlink" href={x.tx_url} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}>
+              {shortHex(x.tx_hash, 10, 8)} ↗
+            </a>
+          ) : (
+            <span className="mono">{shortHex(x.tx_hash, 10, 8)}</span>
+          )}
+        </div>
+      ) : null}
+
       {open ? (
         <div className="khrunbody">
           <p className="khnote">{STATUS_NOTE[x.status]}</p>
