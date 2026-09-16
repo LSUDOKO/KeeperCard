@@ -9,7 +9,7 @@
 //
 // Shared by the REST routes and the MCP tools so the two surfaces cannot drift.
 
-import { EngineError, RefusalError, attestcoin as ac, spend, type Receipt } from "@attestpay/engine";
+import { EngineError, RefusalError, attestcoin as ac, planSpend, spend, type Receipt } from "@attestpay/engine";
 import type { AppDeps } from "../deps";
 import { spendDeps, spendKey } from "../deps";
 
@@ -46,13 +46,55 @@ export function refuseCredit(e: unknown): never {
   throw e;
 }
 
-/** Executes a draw on behalf of the borrower. `actorCardId` is the borrower's card
- * that asked (for the memo and for scoping); the money leaves the lender's funding
- * card. */
+/**
+ * The reviewable half of a draw: every check `executeDraw` makes, then a KeeperHub dry
+ * run, and nothing else. Returns a plan_id the agent shows its user before committing;
+ * `draw_credit` with that plan_id executes those exact bytes.
+ *
+ * Deliberately shares `assertDrawable` and the funding-card check with `executeDraw`, so
+ * a plan that passes here cannot be refused for a reason the dry run never saw.
+ */
+export async function planDraw(
+  deps: AppDeps,
+  lineId: string,
+  args: { amountAtoms: bigint; memo?: string; idempotencyKey?: string },
+): Promise<{ plan: Awaited<ReturnType<typeof planSpend>>; line: ac.CreditLineRow }> {
+  const { store: acStore } = creditDeps(deps);
+  const now = Math.floor(Date.now() / 1000);
+  const line = acStore.getLine(lineId);
+  if (!line) throw new RefusalError("card_not_found", "no such credit line");
+  try {
+    ac.assertDrawable(line, args.amountAtoms, now);
+  } catch (e) {
+    refuseCredit(e);
+  }
+  const funding = deps.store.getCard(line.funding_card_id);
+  if (!funding || funding.status !== "active") {
+    throw new RefusalError("card_frozen", "the lender's funding card is not active; the line cannot be drawn");
+  }
+  const plan = await deps.spendMutex.run(spendKey(deps.store, line.funding_card_id), () =>
+    planSpend(spendDeps(deps), line.funding_card_id, {
+      kind: "pay",
+      mode: "pay",
+      to: line.borrower_address,
+      amountAtoms: args.amountAtoms,
+      memo: args.memo ?? `credit draw ${lineId.slice(0, 10)}`,
+      idempotencyKey: args.idempotencyKey,
+      purpose: "credit",
+    }),
+  );
+  return { plan, line };
+}
+
+/**
+ * Executes a draw on behalf of the borrower. `actorCardId` is the borrower's card that
+ * asked (for the memo and for scoping); the money leaves the lender's funding card.
+ * `planId` executes a `planDraw` result byte-for-byte instead of carving afresh.
+ */
 export async function executeDraw(
   deps: AppDeps,
   lineId: string,
-  args: { amountAtoms: bigint; memo?: string; idempotencyKey?: string; actorCardId?: string },
+  args: { amountAtoms: bigint; memo?: string; idempotencyKey?: string; actorCardId?: string; planId?: string },
 ): Promise<CreditExecResult> {
   const { store: acStore, client } = creditDeps(deps);
   const now = Math.floor(Date.now() / 1000);
@@ -82,6 +124,8 @@ export async function executeDraw(
       idempotencyKey: key,
       // executed by KeeperHub's credit-line-draw-repay workflow (dry run -> exact execution)
       purpose: "credit",
+      // when the caller reviewed a planDraw first, these exact bytes execute
+      ...(args.planId ? { planId: args.planId } : {}),
     }),
   );
 
