@@ -18,6 +18,7 @@
 import { useCallback, useEffect, useState } from "react";
 import {
   api,
+  type AttestationReport,
   type KeeperHubExecution,
   type KeeperHubLog,
   type KeeperHubStatus,
@@ -87,6 +88,7 @@ export default function KeeperHub() {
   const [status, setStatus] = useState<KeeperHubStatus_ | null>(null);
   const [workflows, setWorkflows] = useState<KeeperHubWorkflow[]>([]);
   const [executions, setExecutions] = useState<KeeperHubExecution[]>([]);
+  const [attestation, setAttestation] = useState<AttestationReport | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState<number | null>(null);
@@ -98,12 +100,15 @@ export default function KeeperHub() {
       setStatus(s);
       setError(null);
       if (!s.enabled) return;
-      const [w, e] = await Promise.all([
+      const [w, e, a] = await Promise.all([
         api.keeperhubWorkflows().catch(() => ({ workflows: [] })),
         api.keeperhubExecutions(50).catch(() => ({ executions: [] })),
+        // operator-only, and the chain read can be slow: absent is fine, not an error
+        api.keeperhubAttestation().catch(() => null),
       ]);
       setWorkflows(w.workflows);
       setExecutions(e.executions);
+      setAttestation(a);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -157,6 +162,7 @@ export default function KeeperHub() {
         open={open}
         onOpen={(id) => setOpen((cur) => (cur === id ? null : id))}
       />
+      <Attestation report={attestation} />
     </div>
   );
 }
@@ -396,5 +402,122 @@ function Run({ x, open, onOpen }: { x: KeeperHubExecution; open: boolean; onOpen
         </div>
       ) : null}
     </li>
+  );
+}
+
+// ---------------------------------------------------------------------------
+
+/**
+ * The audit trail's independent witness.
+ *
+ * Everything above reports what AttestPay believes. This panel reports what the chain
+ * holds, and the difference. The honesty rule here is the window: the scan is bounded,
+ * so an anchor older than `from_block` was never looked at — "unwitnessed" is stated as
+ * "no event in this range", never as "did not happen".
+ */
+function Attestation({ report }: { report: AttestationReport | null }) {
+  if (!report) return null;
+
+  if (report.error) {
+    return (
+      <section className="panel khpad">
+        <h2 className="khh">Chain attestation</h2>
+        <p className="khbad">Could not read the chain: {report.error}</p>
+        <p className="khnote">No claim is made either way while the chain cannot be read.</p>
+      </section>
+    );
+  }
+
+  const { matched, unwitnessed, unrecorded } = report;
+  const clean = unwitnessed.length === 0 && unrecorded.length === 0;
+
+  return (
+    <section className="panel khpad">
+      <div className="khhead">
+        <h2 className="khh">Chain attestation</h2>
+        {clean ? <span className="khtag ok">reconciled</span> : <span className="khtag">discrepancies</span>}
+      </div>
+      <p className="khnote">
+        Anchor records checked against the <span className="mono">PaymentAnchored</span> events the
+        chain actually holds, read back through KeeperHub. Blocks{" "}
+        <span className="mono">{report.from_block ?? "?"}</span>–<span className="mono">{report.to_block ?? "?"}</span> on
+        chain {report.chain_id}.
+      </p>
+
+      <div className="khstats">
+        <Stat n={matched.length} label="confirmed by the chain" />
+        <Stat n={unwitnessed.length} label="not in this window" />
+        <Stat n={unrecorded.length} label="on-chain, unrecorded" bad={unrecorded.length > 0} />
+      </div>
+
+      {matched.length ? (
+        <>
+          <h3 className="khsub">Confirmed on-chain</h3>
+          <ul className="khruns">
+            {matched.map((m) => (
+              <li key={m.tx_hash ?? `${m.block_number}`} className="khrun">
+                <div className="khrunhead" style={{ cursor: "default" }}>
+                  <span className="khdot ok" />
+                  <span className="khrunwhat">
+                    <span className="khrunaction">{m.memo || "Payment anchor"}</span>
+                    <span className="khrunwf mono">block {m.block_number ?? "?"}</span>
+                  </span>
+                  <span className="khrunstatus mono">{m.amount ? `${Number(m.amount) / 1e6} USDC` : "—"}</span>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </>
+      ) : null}
+
+      {unrecorded.length ? (
+        <>
+          <h3 className="khsub">On-chain, but not in AttestPay&apos;s books</h3>
+          <p className="khnote">
+            The chain holds these anchors and AttestPay has no record of them — a run whose result
+            never made it home. This is the direction worth investigating.
+          </p>
+          <ul className="khruns">
+            {unrecorded.map((m) => (
+              <li key={m.tx_hash ?? `${m.block_number}`} className="khrun">
+                <div className="khrunhead" style={{ cursor: "default" }}>
+                  <span className="khdot bad" />
+                  <span className="khrunwhat">
+                    <span className="khrunaction mono">{shortHex(m.tx_hash, 10, 8)}</span>
+                    <span className="khrunwf mono">block {m.block_number ?? "?"}</span>
+                  </span>
+                  <span className="khrunstatus mono">{m.amount ? `${Number(m.amount) / 1e6} USDC` : "—"}</span>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </>
+      ) : null}
+
+      {unwitnessed.length ? (
+        <>
+          <h3 className="khsub">No event in the scanned range</h3>
+          <p className="khnote">
+            AttestPay recorded these as landed, and no matching event appears between blocks{" "}
+            {report.from_block ?? "?"} and {report.to_block ?? "?"}. An anchor older than that window
+            was simply not scanned, so this is not by itself a discrepancy.
+          </p>
+          <ul className="khruns">
+            {unwitnessed.map((u) => (
+              <li key={u.execution_id ?? u.tx_hash ?? u.created_at} className="khrun">
+                <div className="khrunhead" style={{ cursor: "default" }}>
+                  <span className="khdot wait" />
+                  <span className="khrunwhat">
+                    <span className="khrunaction mono">{shortHex(u.tx_hash, 10, 8)}</span>
+                    {u.charge_id ? <span className="khrunwf mono">{u.charge_id}</span> : null}
+                  </span>
+                  <span className="khrunwhen">{ago(u.created_at)}</span>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </>
+      ) : null}
+    </section>
   );
 }
