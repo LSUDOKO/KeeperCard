@@ -50,6 +50,7 @@ import type { OAuthStore } from "../oauth/store";
 import { onboardProofMessage } from "./privy";
 import { attestcoinRoutes } from "../attestcoin/routes";
 import { creditRoutes, type Actor } from "../attestcoin/credit-routes";
+import { keeperhubRoutes } from "../keeperhub/routes";
 import { eventRoutes } from "../events/routes";
 import { teamRoutes } from "../teams/routes";
 import { roleAllows, type AccessLevel } from "../teams/store";
@@ -807,6 +808,8 @@ export function apiRoutes(deps: AppDeps, oauth: OAuthStore): Hono<ApiEnv> {
   app.route("/", creditRoutes(deps, ownedCard, handle, actor));
   app.route("/", eventRoutes(deps, ownedCard, handle, actor));
   app.route("/", teamRoutes(deps, ownedCard, handle, actor));
+  // KeeperHub execution layer: status, audit trail, reviewed plans (dry run -> execute)
+  app.route("/", keeperhubRoutes(deps, ownedCard, handle, (c) => scopedUserId(c, c.req.query("userId"))));
 
   app.get("/tree", (c) =>
     handle(c, async () => {
