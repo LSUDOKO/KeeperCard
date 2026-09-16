@@ -95,6 +95,35 @@ export type RiskAssessment = {
   raw: unknown;
 };
 
+export type EventQueryRequest = {
+  contractAddress: Address;
+  chainId: number;
+  /** JSON ABI containing the event */
+  abi: string;
+  eventName: string;
+  /** how many blocks to look back (KeeperHub's default is 6500) */
+  blockCount?: number;
+  fromBlock?: number;
+  toBlock?: number;
+};
+
+export type DecodedEvent = {
+  blockNumber: number | null;
+  transactionHash: Hex | null;
+  logIndex: number | null;
+  /** decoded by name, values as strings */
+  args: Record<string, unknown>;
+};
+
+export type EventQueryResult = {
+  success: boolean;
+  events: DecodedEvent[];
+  /** the window actually scanned, resolved from `latest` */
+  fromBlock: number | null;
+  toBlock: number | null;
+  error: string | null;
+};
+
 export type ContractCallRequest = {
   contractAddress: Address;
   chainId: number;
@@ -457,6 +486,50 @@ export class KeeperHubClient {
       advisory: result.success !== true || failedUpstream,
       error: str(result.error),
       raw: json,
+    };
+  }
+
+  /**
+   * Decoded contract events, read through KeeperHub's own RPC fleet.
+   *
+   * This is the audit trail's independent witness: the anchors AttestPay believes it
+   * wrote, read back from the chain that actually holds them. A row present locally but
+   * absent here is a claim the chain does not support — which is the discrepancy worth
+   * surfacing, and the reason this exists rather than trusting the local table.
+   */
+  async queryEvents(req: EventQueryRequest): Promise<EventQueryResult> {
+    const { json } = await this.request("query_events", "/execute/node", {
+      method: "POST",
+      body: {
+        actionType: "web3/query-events",
+        config: {
+          network: String(req.chainId),
+          contractAddress: req.contractAddress,
+          abi: req.abi,
+          eventName: req.eventName,
+          ...(req.blockCount ? { blockCount: String(req.blockCount) } : {}),
+          ...(req.fromBlock ? { fromBlock: String(req.fromBlock) } : {}),
+          ...(req.toBlock ? { toBlock: String(req.toBlock) } : {}),
+        },
+      },
+      acceptStatuses: [400],
+    });
+    const r = asRecord(asRecord(json).result);
+    const rows = Array.isArray(r.events) ? r.events : [];
+    return {
+      success: r.success === true,
+      events: rows.map((raw) => {
+        const e = asRecord(raw);
+        return {
+          blockNumber: e.blockNumber === undefined || e.blockNumber === null ? null : Number(e.blockNumber),
+          transactionHash: (str(e.transactionHash) as Hex | null) ?? null,
+          logIndex: e.logIndex === undefined || e.logIndex === null ? null : Number(e.logIndex),
+          args: asRecord(e.args),
+        };
+      }),
+      fromBlock: r.fromBlock === undefined || r.fromBlock === null ? null : Number(r.fromBlock),
+      toBlock: r.toBlock === undefined || r.toBlock === null ? null : Number(r.toBlock),
+      error: str(r.error),
     };
   }
 

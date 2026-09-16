@@ -36,6 +36,28 @@ export const PAYMENT_ANCHOR_ABI = [
   },
 ] as const;
 
+/**
+ * The event `anchorPayment` emits. Kept beside the function ABI because the audit trail
+ * reads these back through KeeperHub to check AttestPay's own records against the chain.
+ */
+export const PAYMENT_ANCHOR_EVENT_ABI = [
+  {
+    type: "event",
+    name: "PaymentAnchored",
+    inputs: [
+      { name: "cardId", type: "bytes32", indexed: true },
+      { name: "payer", type: "address", indexed: true },
+      { name: "merchant", type: "address", indexed: true },
+      { name: "amount", type: "uint256", indexed: false },
+      { name: "sourceChainId", type: "uint256", indexed: false },
+      { name: "sourceTxHash", type: "bytes32", indexed: false },
+      { name: "paidAt", type: "uint256", indexed: false },
+      { name: "anchoredBy", type: "address", indexed: false },
+      { name: "memo", type: "string", indexed: false },
+    ],
+  },
+] as const;
+
 export const ETHEREUM_SEPOLIA_CHAIN_ID = 11155111;
 
 export type NotificationChannels = {
