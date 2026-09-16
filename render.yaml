@@ -32,7 +32,27 @@ services:
       # outside this container, which is exactly what an agent hitting one sees.
       - key: ATTESTPAY_PUBLIC_MCP_BASE
         value: https://attestpay-api.onrender.com
+      # --- KeeperHub: the execution layer -------------------------------------
+      # Without KEEPERHUB_API_KEY the server FAILS LOUDLY on every payment rather than
+      # silently no-op'ing; ATTESTPAY_EXECUTOR=1shot is the rollback lane.
+      # Workflow ids come from `bun run --cwd packages/server keeperhub:provision`,
+      # which matches by name, so they stay stable across re-runs.
+      - key: KEEPERHUB_WORKFLOW_PAY
+        value: o6iijkcr7tj83nj8ufbx6
+      - key: KEEPERHUB_WORKFLOW_ANCHOR
+        value: 625tzb9kz8wfg3okjjlch
+      - key: KEEPERHUB_WORKFLOW_CREDIT
+        value: b8e0j3ghqajod6ow0hau5
+      - key: KEEPERHUB_WALLET_ADDRESS
+        value: "0x4F719186a5545B8dB9a8e3e2F31eDdfc55BaD441"
+      # Refuse to execute a payment that was not dry-run first. This is the whole point;
+      # leave it on.
+      - key: KEEPERHUB_DRY_RUN_REQUIRED
+        value: "1"
+
       # Secrets: set in the Render dashboard, never committed.
+      - key: KEEPERHUB_API_KEY
+        sync: false
       - key: ATTESTPAY_MASTER_KEY
         sync: false
       - key: ATTESTPAY_ADMIN_TOKEN
