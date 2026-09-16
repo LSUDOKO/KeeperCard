@@ -32,6 +32,7 @@ import { atomsToUsdc, parseAtoms, usdcToAtoms } from "./money";
 import { emitRefusalLog, emitChargeLog, usdcSpentTotal, chargesTotal } from "./telemetry";
 import { executorVerifiesReceipts, type ExecutionPurpose, type Executor } from "./executor";
 import { encodeRedemption } from "./keeperhub/calldata";
+import type { RiskAssessment } from "./keeperhub/client";
 import { parseKeeperHubRequestId, parsePlanContext } from "./keeperhub/executor";
 import type { KeeperHubStore, SpendPlanRow } from "./keeperhub/store";
 import type { RelayerTransaction } from "./relayer";
@@ -84,6 +85,12 @@ export type SpendPlan = {
   };
   remaining_this_period_after: string | null;
   expires_at: number;
+  /**
+   * KeeperHub's advisory risk read on this exact calldata, when the executor provides
+   * one. `advisory: true` means the assessor did not reach a verdict (its backend
+   * failed) and `level` is a fail-closed placeholder — show it, do not act on it.
+   */
+  risk?: RiskAssessment | null;
 };
 
 export type SpendDeps = {
@@ -622,11 +629,13 @@ async function runSpend(deps: SpendDeps, cardId: string, req: SpendRequest, plan
   let lastError: string | null = null;
   for (let attempt = 0; attempt < ESTIMATE_RETRIES; attempt++) {
     let transactions: RelayerTransaction[];
-    let est: { success: boolean; error: string | null; requiredPaymentAmount: string | null; context: string | null; raw?: unknown };
+    // the executor's own shape, so an added field (e.g. `risk`) is visible here
+    let est: Awaited<ReturnType<Executor["estimate"]>>;
     if (preplanned) {
       // the reviewed bytes, verbatim; the executor re-checks the digest against the dry run
       transactions = preplanned.transactions;
-      est = { success: true, error: null, requiredPaymentAmount: null, context: preplanned.context };
+      // no fresh dry run on this path: the plan already holds a reviewed simulation
+      est = { success: true, error: null, requiredPaymentAmount: null, context: preplanned.context, raw: null };
     } else {
       const items = planItems();
       // the fee leg rides the last item if unpinned, else its own normal-leaf item
@@ -696,6 +705,7 @@ async function runSpend(deps: SpendDeps, cardId: string, req: SpendRequest, plan
         feeAtoms,
         now,
         chainId,
+        risk: est.risk ?? null,
       });
     }
 
@@ -849,6 +859,7 @@ function savePlan(
     feeAtoms: bigint;
     now: number;
     chainId: ChainId;
+    risk?: RiskAssessment | null;
   },
 ): SpendPlan {
   if (!deps.plans) throw new EngineError("plan", "reviewed plans are not available on this executor");
@@ -908,6 +919,7 @@ function savePlan(
     simulation,
     remaining_this_period_after: after,
     expires_at: expiresAt,
+    ...(p.risk ? { risk: p.risk } : {}),
   };
 }
 
