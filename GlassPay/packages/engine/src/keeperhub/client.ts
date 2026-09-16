@@ -23,6 +23,16 @@ export type KeeperHubChain = {
   usePrivateMempoolRpc: boolean;
 };
 
+/** Feature id KeeperHub uses for the Pro-gated `HTTP Request` action. */
+export const HTTP_REQUEST_FEATURE_ID = "action.http-request";
+
+export type KeeperHubFeatures = {
+  /** "free", "pro", ... */
+  plan: string;
+  /** Feature ids this org may actually put in a workflow. */
+  usableFeatureIds: ReadonlySet<string>;
+};
+
 export type KeeperHubIntegration = {
   id: string;
   name: string;
@@ -344,6 +354,34 @@ export class KeeperHubClient {
   async spendCap(): Promise<Record<string, unknown>> {
     const { json } = await this.request("spend_cap", "/analytics/spend-cap");
     return asRecord(json);
+  }
+
+  /**
+   * The org's plan and which gated features it may actually use.
+   *
+   * A feature is usable when it names no `requiredPlan`, or when the org has bought
+   * it (`enabledFeatureIds`). Note `enabled` on a feature means "this build ships it",
+   * not "this org may use it" — on a free org every Pro feature still reads
+   * `enabled: true` with `requiredPlan: "pro"`, so reading `enabled` alone would let
+   * a workflow through that the API then rejects with 402 upgrade_required.
+   */
+  async features(): Promise<KeeperHubFeatures> {
+    const { json } = await this.request("features", "/features");
+    const rec = asRecord(json);
+    const owned = new Set((Array.isArray(rec.enabledFeatureIds) ? rec.enabledFeatureIds : []).map(String));
+    const usable = new Set<string>();
+    for (const raw of Array.isArray(rec.features) ? rec.features : []) {
+      const f = asRecord(raw);
+      const id = typeof f.id === "string" ? f.id : null;
+      if (!id) continue;
+      if (!f.requiredPlan || owned.has(id)) usable.add(id);
+    }
+    return { plan: typeof rec.plan === "string" ? rec.plan : "unknown", usableFeatureIds: usable };
+  }
+
+  /** Whether workflows may contain an `HTTP Request` node (Pro-gated). */
+  async supportsHttpRequestAction(): Promise<boolean> {
+    return (await this.features()).usableFeatureIds.has(HTTP_REQUEST_FEATURE_ID);
   }
 
   // ---------------------------------------------------------------------------
