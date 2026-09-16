@@ -57,8 +57,6 @@ export type WorkflowBuildOptions = {
   paymentAnchorAddress?: Address | null;
   anchorChainId?: number;
   gasLimitMultiplier?: string;
-  /** use Flashbots Protect where KeeperHub supports it (Ethereum mainnet/Sepolia) */
-  privateMempoolForAnchor?: boolean;
   notify?: NotificationChannels;
   schedules?: { recovery?: string; settle?: string };
 };
@@ -126,7 +124,6 @@ function redemptionWorkflow(key: "pay" | "credit", opts: WorkflowBuildOptions): 
         {
           actionType: "web3/write-contract",
           network: String(opts.chainId),
-          web3Connection: "default",
           contractAddress: DELEGATION_MANAGER,
           abi: JSON.stringify(REDEEM_DELEGATIONS_ABI),
           abiFunction: "redeemDelegations",
@@ -272,13 +269,11 @@ function anchorWorkflow(opts: WorkflowBuildOptions): WorkflowDefinition | null {
         {
           actionType: "web3/write-contract",
           network: String(opts.anchorChainId ?? ETHEREUM_SEPOLIA_CHAIN_ID),
-          web3Connection: "default",
           contractAddress: opts.paymentAnchorAddress,
           abi: JSON.stringify(PAYMENT_ANCHOR_ABI),
           abiFunction: "anchorPayment",
           functionArgs: `{{@${t}:${tLabel}.functionArgs}}`,
           gasLimitMultiplier: opts.gasLimitMultiplier ?? "1.5",
-          ...(opts.privateMempoolForAnchor ? { usePrivateMempool: true } : {}),
           failOnError: "true",
         },
         280,
