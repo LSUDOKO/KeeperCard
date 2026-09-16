@@ -124,6 +124,11 @@ export class AttestcoinClient {
   /** Last registry resolution; null until `resolveChainKey` has run. */
   discovery: ChainResolution | null = null;
 
+  /** Who anchors PAYMENTS when that leg is delegated to an execution layer
+   * (KeeperHub's org wallet). Null = this process's own key anchors them. Facts and
+   * proof submissions on Creditcoin always use the process key. */
+  private paymentAnchorer: string | null = null;
+
   constructor(readonly config: AttestcoinConfig) {
     // `staticNetwork` matters: without it ethers probes the chain on every call to
     // detect network changes, which turns each read into two round trips and was the
@@ -177,6 +182,38 @@ export class AttestcoinClient {
    * so it must match the `trustedAnchorer` the ASC was deployed with. */
   get anchorerAddress(): string {
     return this.sourceWallet.address;
+  }
+
+  /** The address PaymentAnchor records as `anchoredBy` for payment anchors. */
+  get paymentAnchorerAddress(): string {
+    return this.paymentAnchorer ?? this.sourceWallet.address;
+  }
+
+  /** Declare that payment anchors are written by an external executor's wallet. The
+   * ASC's immutable `trustedAnchorer` must then be that wallet (redeploy the ASC with
+   * it; the Solidity is unchanged). checkDeployment reports a mismatch loudly. */
+  usePaymentAnchorer(address: string): void {
+    this.paymentAnchorer = address;
+  }
+
+  /** An existing anchor for this payment, or null when it has never been anchored.
+   * Lets an external anchorer converge after a crash exactly like anchorPayment does. */
+  async existingAnchor(req: AnchorRequest): Promise<{ txHash: string; height: number } | null> {
+    const already = await this.anchor.isAnchored(BigInt(req.sourceChainId), req.sourceTxHash);
+    if (!already) return null;
+    const found = await this.findExistingAnchor(req);
+    if (found) return found;
+    throw new AttestcoinError(
+      "anchor",
+      `payment ${req.sourceTxHash} is already anchored but its anchoring transaction could not be located in the log history`,
+      false,
+    );
+  }
+
+  /** Block height of a source-chain transaction (the anchor height the proof needs). */
+  async sourceBlockOf(txHash: string): Promise<number | null> {
+    const receipt = await this.sourceProvider.getTransactionReceipt(txHash);
+    return receipt ? receipt.blockNumber : null;
   }
 
   /** Which optional features this client can serve. */
@@ -1211,9 +1248,9 @@ export class AttestcoinClient {
           `ASC paymentAnchor is ${anchorAddr} but this process anchors to ${this.config.anchorAddress}`,
         );
       }
-      if (anchorer.toLowerCase() !== this.sourceWallet.address.toLowerCase()) {
+      if (anchorer.toLowerCase() !== this.paymentAnchorerAddress.toLowerCase()) {
         problems.push(
-          `ASC trustedAnchorer is ${anchorer} but this process anchors from ${this.sourceWallet.address}; proofs will be rejected with UntrustedAnchorer`,
+          `ASC trustedAnchorer is ${anchorer} but payments are anchored from ${this.paymentAnchorerAddress}${this.paymentAnchorer ? " (KeeperHub wallet)" : ""}; proofs will be rejected with UntrustedAnchorer`,
         );
       }
     } catch (e) {
