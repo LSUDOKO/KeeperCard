@@ -10,7 +10,9 @@ import {
   Relayer,
   Store,
   attestcoin,
+  keeperhub,
   type DelegationSigner,
+  type Executor,
   type FinalizeOpsDeps,
   type SpendDeps,
 } from "@attestpay/engine";
@@ -22,9 +24,22 @@ import { EventBus } from "./events/bus";
 import { EventStore } from "./events/store";
 import { TeamStore } from "./teams/store";
 
+/** The KeeperHub execution layer: what moves the money under the card's authorization. */
+export type KeeperHubDeps = {
+  mode: keeperhub.ExecutorMode;
+  config: keeperhub.KeeperHubConfig | null;
+  client: keeperhub.KeeperHubClient | null;
+  /** plans + execution audit records; always present so the dashboard can render */
+  store: keeperhub.KeeperHubStore;
+  /** payment anchoring on Sepolia through KeeperHub (null = direct path) */
+  anchorer: keeperhub.KeeperHubAnchorer | null;
+  disabledReason: string | null;
+};
+
 export type AppDeps = {
   store: Store;
-  relayer: Relayer;
+  /** the execution layer (KeeperHubExecutor by default; legacy Relayer on ATTESTPAY_EXECUTOR=1shot) */
+  relayer: Executor;
   /** dev-mode server-side signer for A_user (local key); P4 adds the pre-signed Privy path */
   userSigner: DelegationSigner | null;
   /** ops bearer token (server-side curl/scripts lane; full access) */
@@ -57,6 +72,8 @@ export type AppDeps = {
   events?: EventBus;
   /** Teams and roles over cards. Optional like the rest; absent means owner-only access. */
   teams?: TeamStore;
+  /** KeeperHub execution layer. Optional in fakes; realDeps always sets it. */
+  keeperhub?: KeeperHubDeps;
 };
 
 /** Numeric env with a default that survives the empty string. `Number(x ?? d)` is a trap:
@@ -70,9 +87,58 @@ export function envInt(name: string, def: number): number {
   return Number.isFinite(n) ? n : def;
 }
 
+/** Builds the execution layer from env. KeeperHub unless ATTESTPAY_EXECUTOR=1shot; a
+ * KeeperHub selection without a key yields an executor that fails every payment loudly. */
+export function executionLayer(store: Store): { relayer: Executor; keeperhub: KeeperHubDeps } {
+  const khStore = new keeperhub.KeeperHubStore(store.db);
+  const mode = keeperhub.executorMode();
+  if (mode === "1shot") {
+    console.warn(
+      "[executor] LEGACY 1Shot relayer selected (ATTESTPAY_EXECUTOR=1shot). KeeperHub dry runs, workflows and audit trail are OFF.",
+    );
+    return {
+      relayer: new Relayer(),
+      keeperhub: { mode, config: null, client: null, store: khStore, anchorer: null, disabledReason: "ATTESTPAY_EXECUTOR=1shot" },
+    };
+  }
+  const config = keeperhub.keeperhubConfig();
+  if (!config) {
+    const reason = keeperhub.keeperhubDisabledReason() ?? "not configured";
+    console.error(
+      `[keeperhub] NOT CONFIGURED (${reason}): every payment will fail with keeperhub_not_configured. Set KEEPERHUB_API_KEY, or ATTESTPAY_EXECUTOR=1shot to roll back.`,
+    );
+    return {
+      relayer: new keeperhub.UnconfiguredKeeperHubExecutor(reason),
+      keeperhub: { mode, config: null, client: null, store: khStore, anchorer: null, disabledReason: reason },
+    };
+  }
+  const client = new keeperhub.KeeperHubClient(config);
+  const sponsorPk = process.env.ATTESTPAY_7702_SPONSOR_PK?.trim() as Hex | undefined;
+  const executor = new keeperhub.KeeperHubExecutor({
+    config,
+    client,
+    store: khStore,
+    bootstrap7702: sponsorPk
+      ? keeperhub.makeSponsor7702Bootstrap(sponsorPk, {
+          onSubmitted: (hash, account) => console.log(`[keeperhub] 7702 upgrade ${hash} submitted for ${account}`),
+        })
+      : null,
+  });
+  const wf = Object.entries(config.workflows)
+    .map(([k, v]) => `${k}=${v ?? "-"}`)
+    .join(" ");
+  console.log(
+    `[keeperhub] execution layer ENABLED · api=${config.apiBase} · dry-run gate=${config.dryRunRequired ? "on" : "OFF"} · workflows ${wf}`,
+  );
+  return {
+    relayer: executor,
+    keeperhub: { mode, config, client, store: khStore, anchorer: null, disabledReason: null },
+  };
+}
+
 export function realDeps(): AppDeps {
   const store = new Store(); // ATTESTPAY_DB_PATH or :memory:
-  const relayer = new Relayer();
+  const { relayer, keeperhub: khDeps } = executionLayer(store);
   const pk = process.env.ATTESTPAY_DEV_USER_PK as Hex | undefined;
   // .trim(): a pasted-into-a-dashboard env var is the single most common way this
   // silently breaks — a trailing newline/space survives copy-paste and makes every
@@ -94,6 +160,7 @@ export function realDeps(): AppDeps {
     attestcoin: { store: acStore, client: null },
     events: new EventBus(new EventStore(store.db), store),
     teams: new TeamStore(store.db),
+    keeperhub: khDeps,
   };
 
   // Attestcoin is optional. A misconfiguration must disable the cross-chain leg
@@ -102,10 +169,30 @@ export function realDeps(): AppDeps {
   const acConfig = attestcoin.attestcoinConfig();
   if (acConfig) {
     try {
-      deps.attestcoin = { store: acStore, client: new attestcoin.AttestcoinClient(acConfig) };
+      const acClient = new attestcoin.AttestcoinClient(acConfig);
+      deps.attestcoin = { store: acStore, client: acClient };
       console.log(
         `[attestcoin] enabled · chainKey=${acConfig.chainKey} anchor=${acConfig.anchorAddress} asc=${acConfig.ascAddress}`,
       );
+      // Payment anchors go through KeeperHub once its anchor workflow is provisioned
+      // (or KEEPERHUB_ANCHOR_PAYMENTS=1 for direct execution). The ASC must trust the
+      // KeeperHub wallet; the boot deployment check says so loudly if it does not.
+      const kh = khDeps;
+      const anchorViaKh =
+        kh.config && kh.client && process.env.KEEPERHUB_ANCHOR_PAYMENTS !== "0" &&
+        (kh.config.workflows.anchor !== null || process.env.KEEPERHUB_ANCHOR_PAYMENTS === "1");
+      if (anchorViaKh) {
+        kh.anchorer = new keeperhub.KeeperHubAnchorer({
+          client: kh.client!,
+          config: kh.config!,
+          store: kh.store,
+          anchorAddress: acConfig.anchorAddress,
+          anchorChainId: acConfig.sourceChainId || keeperhub.ETHEREUM_SEPOLIA_CHAIN_ID,
+          existingAnchor: (req) => acClient.existingAnchor(req),
+          blockOf: (hash) => acClient.sourceBlockOf(hash),
+        });
+        console.log("[attestcoin] payment anchors execute through KeeperHub (attestcoin-cross-chain-proof, leg 1)");
+      }
     } catch (e) {
       console.error(
         `[attestcoin] DISABLED: client construction failed (${e instanceof Error ? e.message : String(e)})`,
@@ -138,6 +225,8 @@ export function spendDeps(deps: AppDeps): SpendDeps {
   return {
     store: deps.store,
     relayer: deps.relayer,
+    plans: deps.keeperhub?.store ?? null,
+    planTtlSeconds: deps.keeperhub?.config?.planTtlSeconds,
     // Every confirmed charge is offered to the Attestcoin pipeline. Enqueue is
     // cheap (one idempotent INSERT) and the background worker does the slow
     // cross-chain work, so `pay` still returns as soon as Base confirms.
