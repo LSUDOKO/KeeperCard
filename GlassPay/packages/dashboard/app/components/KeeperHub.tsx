@@ -31,29 +31,35 @@ import { shortHex } from "./ui";
 // ---------------------------------------------------------------------------
 
 const STATUS_LABEL: Record<KeeperHubStatus, string> = {
-  simulated: "Dry run",
+  simulated: "Dry run passed",
+  simulation_failed: "Dry run caught it",
   pending: "Submitting",
+  running: "Running",
   unconfirmed: "Awaiting confirmation",
-  completed: "Executed",
+  completed: "Confirmed",
   failed: "Failed",
-  cancelled: "Cancelled",
 };
 
 /** What each state means for the money, in the user's terms. */
 const STATUS_NOTE: Record<KeeperHubStatus, string> = {
-  simulated: "Rehearsed against KeeperHub's simulator — no chain was touched",
+  simulated: "Rehearsed against KeeperHub's simulator — no chain was touched, no gas spent",
+  simulation_failed: "The dry run reverted, so nothing was broadcast. This is the gate working: the failure cost no gas",
   pending: "Handed to KeeperHub; it owns nonce, gas and retries from here",
+  running: "KeeperHub is working through the workflow's steps",
   unconfirmed: "On-chain, waiting for a receipt — KeeperHub retries and bumps gas as needed",
   completed: "Confirmed on-chain",
   failed: "KeeperHub could not land this transaction",
-  cancelled: "Cancelled before it landed",
 };
 
-/** unconfirmed is deliberately NOT danger: it is the normal path of a working retry. */
+/**
+ * `unconfirmed` is deliberately not danger: it is the normal path of a working retry.
+ * `simulation_failed` is muted rather than red for the same reason — a dry run that
+ * refuses to broadcast is the gate succeeding, not the payment failing.
+ */
 function tone(s: KeeperHubStatus): "ok" | "wait" | "bad" | "muted" {
   if (s === "completed") return "ok";
   if (s === "failed") return "bad";
-  if (s === "simulated" || s === "cancelled") return "muted";
+  if (s === "simulated" || s === "simulation_failed") return "muted";
   return "wait";
 }
 
@@ -62,6 +68,9 @@ const ACTION_LABEL: Record<string, string> = {
   execute: "Payment",
   anchor: "Cross-chain anchor",
   notify: "Notification",
+  reconcile: "Stuck-charge recovery",
+  settle_sweep: "Fiat settlement",
+  bootstrap: "Account upgrade (EIP-7702)",
 };
 
 function ago(iso: string): string {
@@ -80,7 +89,7 @@ export default function KeeperHub() {
   const [executions, setExecutions] = useState<KeeperHubExecution[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [open, setOpen] = useState<string | null>(null);
+  const [open, setOpen] = useState<number | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -132,8 +141,11 @@ export default function KeeperHub() {
   }
 
   const stats = status.stats_24h;
-  const executed = executions.filter((x) => x.action !== "dry_run");
-  const dryRuns = executions.filter((x) => x.action === "dry_run");
+  // Split on what happened, not on what was asked for: an anchor whose dry run reverted
+  // is a rehearsal too, and listing it as a payment would overstate what touched a chain.
+  const isRehearsal = (x: KeeperHubExecution) => x.status === "simulated" || x.status === "simulation_failed";
+  const executed = executions.filter((x) => !isRehearsal(x));
+  const dryRuns = executions.filter(isRehearsal);
 
   return (
     <div className="khwrap">
@@ -260,24 +272,38 @@ function Timeline({
 }: {
   executed: KeeperHubExecution[];
   dryRuns: KeeperHubExecution[];
-  open: string | null;
-  onOpen: (id: string) => void;
+  open: number | null;
+  onOpen: (id: number) => void;
 }) {
   return (
     <section className="panel khpad">
       <div className="khhead">
         <h2 className="khh">Executions</h2>
-        {dryRuns.length ? <span className="khstatsnote">{dryRuns.length} dry run(s) not shown as payments</span> : null}
       </div>
       {!executed.length ? (
         <p className="khnote">Nothing executed yet. A payment appears here the moment an agent calls `pay`.</p>
       ) : (
         <ul className="khruns">
           {executed.map((x) => (
-            <Run key={x.execution_id} x={x} open={open === x.execution_id} onOpen={() => onOpen(x.execution_id)} />
+            <Run key={x.id} x={x} open={open === x.id} onOpen={() => onOpen(x.id)} />
           ))}
         </ul>
       )}
+
+      {dryRuns.length ? (
+        <>
+          <h3 className="khsub">Dry runs</h3>
+          <p className="khnote">
+            Rehearsals against KeeperHub&apos;s simulator. None of these touched a chain or spent gas —
+            a dry run that reverts here is a payment that never had to fail on-chain.
+          </p>
+          <ul className="khruns">
+            {dryRuns.map((x) => (
+              <Run key={x.id} x={x} open={open === x.id} onOpen={() => onOpen(x.id)} />
+            ))}
+          </ul>
+        </>
+      ) : null}
     </section>
   );
 }
@@ -287,7 +313,8 @@ function Run({ x, open, onOpen }: { x: KeeperHubExecution; open: boolean; onOpen
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    if (!open || logs) return;
+    // A dry run never reached KeeperHub as a run, so it has no id and no step logs.
+    if (!open || logs || !x.execution_id) return;
     setBusy(true);
     api
       .keeperhubExecution(x.execution_id)
@@ -334,7 +361,7 @@ function Run({ x, open, onOpen }: { x: KeeperHubExecution; open: boolean; onOpen
               </div>
             ) : null}
             {x.charge_id ? <Field label="Charge" value={x.charge_id} mono /> : null}
-            <Field label="KeeperHub run" value={x.execution_id} mono />
+            {x.execution_id ? <Field label="KeeperHub run" value={x.execution_id} mono /> : null}
           </div>
 
           {x.error ? <p className="khbad">{x.error}</p> : null}

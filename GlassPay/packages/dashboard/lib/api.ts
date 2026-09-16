@@ -400,10 +400,24 @@ export async function publicCall<T>(path: string, init?: RequestInit): Promise<T
 // ---------------------------------------------------------------------------
 
 /** Mirrors keeperhub.KeeperHubAction: what the execution was for. */
-export type KeeperHubAction = "dry_run" | "execute" | "anchor" | "notify";
+export type KeeperHubAction =
+  | "dry_run"
+  | "execute"
+  | "anchor"
+  | "notify"
+  | "reconcile"
+  | "settle_sweep"
+  | "bootstrap";
 
-/** KeeperHub's own terminal vocabulary, plus the pre-flight states AttestPay adds. */
-export type KeeperHubStatus = "simulated" | "pending" | "unconfirmed" | "completed" | "failed" | "cancelled";
+/** Mirrors keeperhub.KeeperHubExecutionStatus (engine/src/keeperhub/store.ts). */
+export type KeeperHubStatus =
+  | "simulated"
+  | "simulation_failed"
+  | "pending"
+  | "running"
+  | "unconfirmed"
+  | "completed"
+  | "failed";
 
 export type KeeperHubExecution = {
   id: number;
