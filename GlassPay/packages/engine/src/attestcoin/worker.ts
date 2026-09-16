@@ -49,6 +49,9 @@ export type WorkerDeps = {
   /** Fired once when a row reaches 'verified' or 'failed'. Webhooks hang off this.
    * Must not throw; it is shielded regardless. */
   onTerminal?: (event: PipelineEvent) => void;
+  /** Executes the payment anchor (Sepolia leg) somewhere other than this process's
+   * own key: KeeperHub's attestcoin-cross-chain-proof workflow. Absent = direct path. */
+  anchorer?: { anchorPayment(req: AnchorRequest): Promise<{ txHash: string; height: number }> } | null;
 };
 
 export type PipelineEvent =
@@ -149,7 +152,7 @@ function paymentPipeline(deps: WorkerDeps): Pipeline<ProofRow> {
       // The anchor records the chain the USDC actually moved on (Base), which is what
       // `PaymentAnchored.sourceChainId` documents; the anchor's own chain is implicit.
       const req = anchorRequestFor(store, row.charge_id, paymentChainId(client))!;
-      return client.anchorPayment(req);
+      return deps.anchorer ? deps.anchorer.anchorPayment(req) : client.anchorPayment(req);
     },
     submit: (row, proof) => client.submitProof(row.charge_id, row.card_id, proof),
     afterVerified: (row, now) => refreshCreditCache(deps, row.card_id, now),
