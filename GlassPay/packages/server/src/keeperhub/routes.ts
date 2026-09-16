@@ -188,6 +188,34 @@ export function keeperhubRoutes(deps: AppDeps, ownedCard: OwnedCardResolver, han
     }),
   );
 
+  // The audit trail's independent witness: AttestPay's anchor records checked against
+  // the PaymentAnchored events the chain actually holds. Admin-only, because it reports
+  // across every card's anchors rather than one caller's subtree.
+  app.get("/keeperhub/attestation", (c) =>
+    handle(c, async () => {
+      if (c.get("auth").kind !== "admin") throw new RefusalError("card_not_found", "attestation is an operator view");
+      const ac = deps.attestcoin?.client?.config;
+      if (!ac) throw new RefusalError("invalid_terms", "the Attestcoin anchor is not configured on this deployment");
+      const blockCount = Math.min(Number(c.req.query("blocks") ?? "6500") || 6500, 50_000);
+      const report = await keeperhub.attestAnchors({
+        client: client(),
+        store: kh().store,
+        anchorAddress: ac.anchorAddress,
+        anchorChainId: ac.sourceChainId || keeperhub.ETHEREUM_SEPOLIA_CHAIN_ID,
+        blockCount,
+      });
+      return {
+        ...report,
+        summary: {
+          matched: report.matched.length,
+          unwitnessed: report.unwitnessed.length,
+          unrecorded: report.unrecorded.length,
+        },
+        note: "Only the scanned window is covered: an anchor older than from_block is not looked at, so `unwitnessed` means 'no event in this range', never 'did not happen'.",
+      };
+    }),
+  );
+
   app.get("/keeperhub/executions", (c) =>
     handle(c, async () => {
       const limit = Math.min(Number(c.req.query("limit") ?? "50") || 50, 200);
