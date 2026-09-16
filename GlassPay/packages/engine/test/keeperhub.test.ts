@@ -499,7 +499,8 @@ describe("spend through KeeperHub", () => {
 });
 
 describe("workflow definitions", () => {
-  const base = { chainId: 8453, publicBaseUrl: "https://api.keepercard.test", hookSecret: "s".repeat(32) };
+  // hooksEnabled mirrors a Pro org; the free-plan shape is covered separately below.
+  const base = { chainId: 8453, publicBaseUrl: "https://api.keepercard.test", hookSecret: "s".repeat(32), hooksEnabled: true };
 
   test("redemption workflow: manual trigger -> write-contract on DelegationManager -> hook", () => {
     const defs = buildWorkflowDefinitions(base);
@@ -540,5 +541,39 @@ describe("workflow definitions", () => {
   test("rejects weak hook secrets and relative base URLs", () => {
     expect(() => buildWorkflowDefinitions({ ...base, hookSecret: "short" })).toThrow();
     expect(() => buildWorkflowDefinitions({ ...base, publicBaseUrl: "/api" })).toThrow();
+  });
+
+  describe("without the Pro-gated HTTP Request action", () => {
+    const free = { ...base, hooksEnabled: false, paymentAnchorAddress: "0x881c55745372DfCB7dEC9B13F499b167164e2121" as const };
+
+    test("value-moving workflows keep their write-contract node and lose only the callback", () => {
+      const defs = buildWorkflowDefinitions(free);
+      for (const key of ["pay", "credit"] as const) {
+        const def = defs[key]!;
+        expect(def.nodes.map((n) => n.id)).toEqual(["redemption-request", "redeem"]);
+        expect(def.nodes.find((n) => n.id === "redeem")!.data.config.actionType).toBe("web3/write-contract");
+        expect(def.edges.map((e) => `${e.source}>${e.target}`)).toEqual(["redemption-request>redeem"]);
+      }
+      const anchor = defs.anchor!;
+      expect(anchor.nodes.map((n) => n.id)).toEqual(["payment-confirmed", "anchor"]);
+      expect(anchor.edges.map((e) => `${e.source}>${e.target}`)).toEqual(["payment-confirmed>anchor"]);
+    });
+
+    test("no workflow carries an HTTP Request node, which the API would reject with 402", () => {
+      const defs = buildWorkflowDefinitions(free);
+      for (const def of Object.values(defs)) {
+        for (const n of def?.nodes ?? []) expect(n.data.config.actionType).not.toBe("HTTP Request");
+      }
+    });
+
+    test("hook-only sweeps are dropped, since a lone schedule is not a workflow", () => {
+      const defs = buildWorkflowDefinitions(free);
+      expect(defs.recovery).toBeNull();
+      expect(defs.settle).toBeNull();
+    });
+
+    test("the hook secret is not required when nothing calls back", () => {
+      expect(() => buildWorkflowDefinitions({ ...free, hookSecret: "" })).not.toThrow();
+    });
   });
 });
