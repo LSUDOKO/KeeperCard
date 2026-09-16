@@ -14,6 +14,7 @@ import type { AppDeps } from "../src/deps";
 import { EventBus } from "../src/events/bus";
 import { EventStore } from "../src/events/store";
 import { installNotificationRelay, notificationText } from "../src/keeperhub/notify";
+import { runFiatSettlement } from "../src/keeperhub/sweeps";
 
 const MERCHANT = "0xAc36D18d2315c8c1F6e93B9074D3C25e2DC14127";
 const WALLET = "0x7777777777777777777777777777777777777777" as Address;
@@ -356,5 +357,76 @@ describe("unconfigured KeeperHub fails loudly", () => {
       process.env.ATTESTPAY_PUBLIC_MCP_BASE = prevBase;
       srv.stop(true);
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// fiat-settlement guard: check-and-execute as a balance floor
+// ---------------------------------------------------------------------------
+
+describe("fiat settlement funding guard", () => {
+  const ORIGINAL = process.env.ATTESTPAY_SETTLE_MIN_USDC_ATOMS;
+  afterAll(() => {
+    if (ORIGINAL === undefined) delete process.env.ATTESTPAY_SETTLE_MIN_USDC_ATOMS;
+    else process.env.ATTESTPAY_SETTLE_MIN_USDC_ATOMS = ORIGINAL;
+  });
+
+  /** deps with just enough surface for runFiatSettlement + the guard */
+  function guardDeps(checkResponse: unknown | Error, onSweep: () => void) {
+    const config = keeperhub.keeperhubConfig({ KEEPERHUB_API_KEY: "kh_t" } as NodeJS.ProcessEnv)!;
+    const client = new keeperhub.KeeperHubClient(config, {
+      fetch: (async () => {
+        if (checkResponse instanceof Error) throw checkResponse;
+        return new Response(JSON.stringify(checkResponse), { status: 200, headers: { "content-type": "application/json" } });
+      }) as unknown as typeof fetch,
+    });
+    return {
+      keeperhub: { config, client, store: null, anchorer: null, mode: "keeperhub", disabledReason: null },
+      relayer: { kind: "keeperhub", delegateAddress: async () => WALLET },
+      fiatSettler: {
+        sweep: async () => {
+          onSweep();
+          return { settled: 1, left: 0 };
+        },
+      },
+    } as unknown as AppDeps;
+  }
+
+  const met = (balance: string) => ({ executed: false, conditionResult: { met: true, observedValue: balance, targetValue: "1000000", operator: "gte" } });
+  const notMet = (balance: string) => ({ executed: false, conditionResult: { met: false, observedValue: balance, targetValue: "1000000", operator: "gte" } });
+
+  test("a balance below the floor skips the sweep instead of burning gas on reverts", async () => {
+    process.env.ATTESTPAY_SETTLE_MIN_USDC_ATOMS = "1000000";
+    let swept = false;
+    const r = await runFiatSettlement(guardDeps(notMet("250000"), () => (swept = true)));
+    expect(swept).toBe(false);
+    expect(r.settled).toBe(0);
+    expect(r.skipped).toContain("250000");
+  });
+
+  test("a balance at or above the floor sweeps normally", async () => {
+    process.env.ATTESTPAY_SETTLE_MIN_USDC_ATOMS = "1000000";
+    let swept = false;
+    const r = await runFiatSettlement(guardDeps(met("5000000"), () => (swept = true)));
+    expect(swept).toBe(true);
+    expect(r.settled).toBe(1);
+    expect(r.skipped).toBeUndefined();
+  });
+
+  test("an unevaluable guard sweeps anyway: a balance oracle being down must not stop settlement", async () => {
+    process.env.ATTESTPAY_SETTLE_MIN_USDC_ATOMS = "1000000";
+    let swept = false;
+    const r = await runFiatSettlement(guardDeps(new Error("keeperhub unreachable"), () => (swept = true)));
+    expect(swept).toBe(true);
+    expect(r.settled).toBe(1);
+  });
+
+  test("the guard is off by default, so no extra call is made", async () => {
+    delete process.env.ATTESTPAY_SETTLE_MIN_USDC_ATOMS;
+    let swept = false;
+    // a throwing client proves the guard was never consulted
+    const r = await runFiatSettlement(guardDeps(new Error("must not be called"), () => (swept = true)));
+    expect(swept).toBe(true);
+    expect(r.settled).toBe(1);
   });
 });
