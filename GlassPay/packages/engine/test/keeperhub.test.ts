@@ -594,3 +594,53 @@ describe("workflow definitions", () => {
     });
   });
 });
+
+describe("risk assessment", () => {
+  const cfg = (): KeeperHubConfig => keeperhubConfig({ KEEPERHUB_API_KEY: "kh_test" } as NodeJS.ProcessEnv)!;
+
+  const clientWith = (result: Record<string, unknown>) =>
+    new KeeperHubClient(cfg(), {
+      fetch: (async () =>
+        new Response(JSON.stringify({ executionId: "x", status: "completed", result }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        })) as unknown as typeof fetch,
+    });
+
+  test("a real verdict is not advisory", async () => {
+    const r = await clientWith({
+      success: true,
+      riskLevel: "low",
+      riskScore: 5,
+      factors: ["known token contract"],
+      decodedFunction: "transfer(address,uint256)",
+      reasoning: "ordinary ERC20 transfer",
+    }).assessRisk({ calldata: "0xdead", chainId: 84532 });
+    expect(r.advisory).toBe(false);
+    expect(r.level).toBe("low");
+    expect(r.score).toBe(5);
+  });
+
+  test("the fail-closed default is marked advisory, so it cannot be mistaken for a finding", async () => {
+    // KeeperHub returns high/70 when its own analysis fails; gating on that would
+    // refuse every payment whenever an upstream AI service is down.
+    const r = await clientWith({
+      success: true,
+      riskLevel: "high",
+      riskScore: 70,
+      factors: ["AI risk analysis failed -- defaulting to elevated risk (fail-closed policy)"],
+      reasoning: "AI assessment failed or timed out.",
+    }).assessRisk({ calldata: "0xdead", chainId: 84532 });
+    expect(r.level).toBe("high");
+    expect(r.advisory).toBe(true);
+  });
+
+  test("an unsuccessful assessment is advisory too", async () => {
+    const r = await clientWith({ success: false, riskLevel: "critical", error: "upstream down" }).assessRisk({
+      calldata: "0xdead",
+      chainId: 84532,
+    });
+    expect(r.advisory).toBe(true);
+    expect(r.error).toBe("upstream down");
+  });
+});
