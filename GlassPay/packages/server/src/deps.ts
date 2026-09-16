@@ -23,6 +23,7 @@ import { veniceChat, type ChatFn } from "./venice/client";
 import { EventBus } from "./events/bus";
 import { EventStore } from "./events/store";
 import { TeamStore } from "./teams/store";
+import { installNotificationRelay } from "./keeperhub/notify";
 
 /** The KeeperHub execution layer: what moves the money under the card's authorization. */
 export type KeeperHubDeps = {
@@ -212,6 +213,7 @@ export function realDeps(): AppDeps {
     settlementOk = false;
   }
   deps.fiatSettler = settlementOk ? makeFiatSettler(deps) : null;
+  installNotificationRelay(deps);
   return deps;
 }
 
