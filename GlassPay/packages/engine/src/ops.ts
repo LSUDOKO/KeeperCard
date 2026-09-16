@@ -14,7 +14,7 @@
 //               to the old nonce dies (the always-on nonce caveat), tree-wide, on-chain.
 //   ROTATE      new bearer secret, same card/delegation/K_agent (leak response).
 
-import type { Address, Hex } from "viem";
+import { isAddress, type Address, type Hex } from "viem";
 import { getSmartAccountsEnvironment, createDelegation, ScopeType } from "@metamask/smart-accounts-kit";
 import { DelegationManager, NonceEnforcer } from "@metamask/smart-accounts-kit/contracts";
 import { CHAIN_ID, CHAINS, DELEGATION_MANAGER, FEE_COLLECTOR, publicClient, type ChainId } from "./chains";
@@ -32,13 +32,13 @@ import { EngineError, RefusalError } from "./errors";
 import { parseAtoms, usdcToAtoms } from "./money";
 import { readRevocationNonce } from "./issuance";
 import { activeCards, emitCardLog } from "./telemetry";
-import type { Relayer } from "./relayer";
+import { executorVerifiesReceipts, type Executor } from "./executor";
 import type { Store } from "./store";
 import type { Wire7702Auth, WireDelegation, WireExecution } from "./types";
 
 export type OpsDeps = {
   store: Store;
-  relayer: Relayer;
+  relayer: Executor;
   userSigner: DelegationSigner;
   chainId?: ChainId;
   feeJitter?: (baseAtoms: bigint) => bigint;
@@ -126,16 +126,22 @@ export function agentRevokeSubcard(store: Store, requesterCardId: string, target
 // The admin-leaf pipeline (user-signed, single-delegation chain, rides 1Shot)
 // ---------------------------------------------------------------------------
 
-/** Build the UNSIGNED admin leaf: straight to the relayer target; FunctionCall scope
+/** Build the UNSIGNED admin leaf: straight to the executor's redeemer; FunctionCall scope
  * admits ONLY the admin call + the mandatory fee transfer (probe10 rule: fee path must
  * pass scope). Shared by the server-signed lane (adminSend) and the client-signed lane
  * (prepareAdminOp). */
-function buildAdminLeaf(userAddress: Address, adminTarget: Address, adminCalldata: Hex, chainId: ChainId) {
+function buildAdminLeaf(
+  userAddress: Address,
+  adminTarget: Address,
+  adminCalldata: Hex,
+  chainId: ChainId,
+  delegate: Address = CHAINS[chainId].targetAddress,
+) {
   const selector = adminCalldata.slice(0, 10) as Hex;
   const leaf = createDelegation({
     environment: getSmartAccountsEnvironment(chainId),
     from: userAddress,
-    to: CHAINS[chainId].targetAddress,
+    to: delegate,
     scope: {
       type: ScopeType.FunctionCall,
       targets: [adminTarget, CHAINS[chainId].usdc],
@@ -174,7 +180,7 @@ async function runAdminLoop(
   for (let attempt = 0; attempt < 3; attempt++) {
     const executions: WireExecution[] = [
       { target: args.adminTarget, value: "0", data: args.adminCalldata },
-      erc20TransferExecution(usdc, FEE_COLLECTOR, feeAtoms),
+      erc20TransferExecution(usdc, isAddress(feeData.feeCollector ?? "") ? feeData.feeCollector : FEE_COLLECTOR, feeAtoms),
     ];
     const est = await deps.relayer.estimate(
       [{ permissionContext: [args.signedLeaf], executions }],
@@ -189,12 +195,13 @@ async function runAdminLoop(
       continue;
     }
     if (!est.context) throw new EngineError("ops", "admin estimate returned no context");
-    const viaChain = deps.confirmViaChain ?? true;
+    const viaChain = deps.confirmViaChain ?? !executorVerifiesReceipts(deps.relayer);
     const sinceBlock = viaChain ? await publicClient(chainId).getBlockNumber() : 0n;
     const requestId = await deps.relayer.send(
       [{ permissionContext: [args.signedLeaf], executions }],
       est.context,
       authorizationList,
+      { purpose: "admin" },
     );
     const confirmation = viaChain
       ? await confirmRedemption(deps.relayer, {
@@ -203,6 +210,7 @@ async function runAdminLoop(
           feeAtoms,
           sinceBlock,
           chainId,
+          feeCollector: isAddress(feeData.feeCollector ?? "") ? feeData.feeCollector : FEE_COLLECTOR,
         })
       : statusToConfirmation(await deps.relayer.waitForStatus(requestId));
     if (confirmation.status === "failed") throw new EngineError("ops", "admin transaction reverted on-chain");
@@ -222,7 +230,8 @@ async function adminSend(
   adminCalldata: Hex,
 ): Promise<AdminOpResult> {
   const chainId = deps.chainId ?? CHAIN_ID;
-  const leaf = buildAdminLeaf(deps.userSigner.address, adminTarget, adminCalldata, chainId);
+  const delegate = typeof deps.relayer.delegateAddress === "function" ? await deps.relayer.delegateAddress() : undefined;
+  const leaf = buildAdminLeaf(deps.userSigner.address, adminTarget, adminCalldata, chainId, delegate);
   const smart = await userSmartAccount(deps.userSigner, chainId);
   const signed = await signWithSmartAccount(smart, leaf, chainId);
   return runAdminLoop({ ...deps, chainId }, {
@@ -330,6 +339,9 @@ export type PrepareOpsDeps = {
   store: Store;
   chainId?: ChainId;
   now?: () => number;
+  /** the executor's redeeming address the user's admin leaf must name (KeeperHub org
+   * wallet); defaults to the legacy relayer target */
+  delegate?: Address;
 };
 
 /** Prepare a client-signed HARD REVOKE of a top-level card. For a sub-card this
@@ -363,7 +375,7 @@ export function prepareRevoke(
     cardId,
     adminTarget: DELEGATION_MANAGER,
     adminCalldata,
-    delegation: buildAdminLeaf(user.address as Address, DELEGATION_MANAGER, adminCalldata, chainId),
+    delegation: buildAdminLeaf(user.address as Address, DELEGATION_MANAGER, adminCalldata, chainId, deps.delegate),
     chainId,
     createdAt: now,
   };
@@ -386,7 +398,7 @@ export function prepareNuke(deps: PrepareOpsDeps, userId: string): PreparedAdmin
     cardId: null,
     adminTarget: nonceEnforcer,
     adminCalldata,
-    delegation: buildAdminLeaf(user.address as Address, nonceEnforcer, adminCalldata, chainId),
+    delegation: buildAdminLeaf(user.address as Address, nonceEnforcer, adminCalldata, chainId, deps.delegate),
     chainId,
     createdAt: now,
   };
@@ -394,7 +406,7 @@ export function prepareNuke(deps: PrepareOpsDeps, userId: string): PreparedAdmin
 
 export type FinalizeOpsDeps = {
   store: Store;
-  relayer: Relayer;
+  relayer: Executor;
   feeJitter?: (baseAtoms: bigint) => bigint;
   codeCheck?: (address: Address, chainId: ChainId) => Promise<boolean>;
   accountNonce?: (address: Address, chainId: ChainId) => Promise<number>;
