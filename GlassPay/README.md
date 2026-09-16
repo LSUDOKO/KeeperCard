@@ -11,6 +11,7 @@ Agentic spending cards: scoped, revocable payment delegations that any AI agent 
 [![Base Mainnet](https://img.shields.io/badge/Base-Mainnet-0052FF)](https://base.org)
 [![ERC-7710](https://img.shields.io/badge/ERC-7710-blue)](https://eips.ethereum.org/EIPS/eip-7710)
 [![Attestcoin](https://img.shields.io/badge/Attestcoin-Creditcoin%20CC3-00d18f)](https://creditcoin.org)
+[![KeeperHub](https://img.shields.io/badge/KeeperHub-Execution%20Layer-ff6b35)](https://keeperhub.com)
 
 Issue scoped, revocable spending cards from your wallet. Any agent plugs one in and pays within your limits: no keys, no gas, dead the moment you revoke. Built on Smart Accounts (ERC-7710), **executed by [KeeperHub](https://keeperhub.com)**, pays the open web with x402, and plugs into any agent over MCP.
 
