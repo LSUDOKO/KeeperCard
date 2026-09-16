@@ -30,7 +30,11 @@ import {
 import { EngineError, RefusalError } from "./errors";
 import { atomsToUsdc, parseAtoms, usdcToAtoms } from "./money";
 import { emitRefusalLog, emitChargeLog, usdcSpentTotal, chargesTotal } from "./telemetry";
-import { Relayer } from "./relayer";
+import { executorVerifiesReceipts, type ExecutionPurpose, type Executor } from "./executor";
+import { encodeRedemption } from "./keeperhub/calldata";
+import { parsePlanContext } from "./keeperhub/executor";
+import type { KeeperHubStore, SpendPlanRow } from "./keeperhub/store";
+import type { RelayerTransaction } from "./relayer";
 import { periodWindow, type CardRow, type ChargeKind, type ChargeRow, type Store } from "./store";
 import type { CardState, Receipt, Wire7702Auth, WireDelegation, WireExecution } from "./types";
 
@@ -50,18 +54,54 @@ export type SpendRequest = {
    * instead of inserting a new one. Skips budget validation (the row already holds
    * the budget in the books) and never marks the row failed. */
   settleChargeId?: string;
+  /** Selects the KeeperHub workflow that executes this redemption (pay by default). */
+  purpose?: ExecutionPurpose;
+  /** Execute a previously reviewed plan (planSpend) byte-for-byte instead of carving
+   * a fresh redemption. The plan's own terms win; to/amount/memo here are ignored. */
+  planId?: string;
+};
+
+/** A reviewed, dry-run redemption: exactly what will execute if the agent approves it. */
+export type SpendPlan = {
+  status: "planned";
+  plan_id: string;
+  card_id: string;
+  digest: Hex;
+  executor: Executor["kind"];
+  workflow: ExecutionPurpose;
+  to: Address | null;
+  amount: string;
+  fee: string;
+  total: string;
+  memo?: string;
+  simulation: {
+    engine: Executor["kind"];
+    would_revert: false;
+    gas_estimate: string | null;
+    simulated_at: number | null;
+    redeemer: Address;
+    execution_count: number;
+  };
+  remaining_this_period_after: string | null;
+  expires_at: number;
 };
 
 export type SpendDeps = {
   store: Store;
-  relayer: Relayer;
+  /** The execution layer: KeeperHubExecutor by default, the legacy 1Shot Relayer on rollback. */
+  relayer: Executor;
+  /** Reviewed-plan storage (KeeperHub dry-run -> execute). Required for planSpend / planId. */
+  plans?: KeeperHubStore | null;
+  /** How long a reviewed plan stays executable (seconds, default 600). */
+  planTtlSeconds?: number;
   chainId?: ChainId;
   now?: () => number;
   /** test seam: overrides the on-chain getCode check */
   codeCheck?: (address: Address, chainId: ChainId) => Promise<boolean>;
   /** test seam: overrides the live account-nonce read (stale-7702-auth guard) */
   accountNonce?: (address: Address, chainId: ChainId) => Promise<number>;
-  /** confirm inclusion via chain logs (default true; tests with a fake relayer set false) */
+  /** confirm inclusion via chain logs (default: on for the 1Shot lane, off for KeeperHub, whose
+   * status already reports receipts re-fetched from the chain; tests with a fake relayer set false) */
   confirmViaChain?: boolean;
   /** fee-uniqueness jitter source (default random 0-999 atoms; tests pin it) */
   feeJitter?: (baseAtoms: bigint) => bigint;
@@ -359,8 +399,16 @@ function refusalFromEstimateError(err: string, mode: SpendMode): RefusalError | 
 // ---------------------------------------------------------------------------
 
 export async function confirmRedemption(
-  relayer: Relayer,
-  args: { requestId: string; delegator: Address; feeAtoms: bigint; sinceBlock: bigint; chainId?: ChainId },
+  relayer: Pick<Executor, "getStatus">,
+  args: {
+    requestId: string;
+    delegator: Address;
+    feeAtoms: bigint;
+    sinceBlock: bigint;
+    chainId?: ChainId;
+    /** the collector this redemption actually paid (feeData.feeCollector); the constant is a stale fallback */
+    feeCollector?: Address;
+  },
   opts: { timeoutMs?: number; intervalMs?: number } = {},
 ): Promise<{ status: "confirmed" | "failed" | "pending"; txHash: Hex | null }> {
   const chainId = args.chainId ?? CHAIN_ID;
@@ -388,7 +436,7 @@ export async function confirmRedemption(
             { name: "value", type: "uint256", indexed: false },
           ],
         },
-        args: { from: args.delegator, to: FEE_COLLECTOR },
+        args: { from: args.delegator, to: args.feeCollector ?? FEE_COLLECTOR },
         fromBlock: args.sinceBlock,
       });
       const hit = logs.find((l) => (l.args as { value?: bigint }).value === args.feeAtoms);
@@ -407,10 +455,64 @@ export async function confirmRedemption(
 // The pipeline
 // ---------------------------------------------------------------------------
 
+/** The executor's redeeming address. Fakes that predate the Executor seam fall back to
+ * the chain's legacy relayer target, which is what they were written against. */
+async function redeemerFor(executor: Executor, chainId: ChainId): Promise<Address> {
+  return typeof executor.delegateAddress === "function"
+    ? await executor.delegateAddress()
+    : CHAINS[chainId].targetAddress;
+}
+
+/** Pay / contract spend: validate -> dry run -> execute -> confirm -> receipt. */
 export async function spend(deps: SpendDeps, cardId: string, req: SpendRequest): Promise<Receipt> {
+  return (await runSpend(deps, cardId, req, false)) as Receipt;
+}
+
+/** Dry-run a spend WITHOUT executing it. Validates against the card's terms exactly as
+ * spend() would, carves and signs the redemption, simulates it through the executor
+ * (KeeperHub `simulate: true` from the org wallet), and stores the signed bytes as a
+ * plan. `spend(..., { planId })` later executes those same bytes, or nothing. */
+export async function planSpend(deps: SpendDeps, cardId: string, req: SpendRequest): Promise<SpendPlan> {
+  if (req.settleChargeId) throw new EngineError("plan", "settlement charges cannot be planned");
+  if (req.planId) throw new EngineError("plan", "a plan cannot be planned again");
+  return (await runSpend(deps, cardId, req, true)) as SpendPlan;
+}
+
+async function runSpend(deps: SpendDeps, cardId: string, req: SpendRequest, planOnly: boolean): Promise<Receipt | SpendPlan> {
   const chainId = deps.chainId ?? CHAIN_ID;
   const now = deps.now ? deps.now() : Math.floor(Date.now() / 1000);
   const store = deps.store;
+
+  // reviewed-plan execution: the plan's terms replace the request's, and the signed
+  // redemption inside it is what gets sent (no re-carve, no re-simulation)
+  let preplanned: SpendPlanRow | null = null;
+  if (req.planId) {
+    if (!deps.plans) throw new EngineError("plan", "reviewed plans are not available on this executor");
+    if (req.settleChargeId) throw new EngineError("plan", "settlement charges cannot execute a plan");
+    const plan = deps.plans.getPlan(req.planId);
+    if (!plan || plan.card_id !== cardId) throw new EngineError("plan", "no such plan for this card");
+    if (plan.status === "executed" && plan.charge_id) {
+      const row = store.getCharge(plan.charge_id);
+      if (row) {
+        return receiptFromCharge(deps, cardId, row.status, row.tx_hash, row.to_addr ?? FEE_COLLECTOR, row.amount_atoms, row.fee_atoms, now, row.memo ?? undefined);
+      }
+    }
+    if (plan.status !== "open") throw new EngineError("plan", `plan is ${plan.status}; dry-run again`);
+    if (plan.expires_at <= now) {
+      deps.plans.setPlanStatus(plan.id, "expired");
+      throw new EngineError("plan", "plan expired before it was executed; dry-run again");
+    }
+    preplanned = plan;
+    req = {
+      ...req,
+      kind: plan.kind,
+      mode: plan.mode,
+      to: plan.to_addr ?? undefined,
+      amountAtoms: plan.amount_atoms,
+      memo: plan.memo ?? undefined,
+      idempotencyKey: plan.idempotency_key ?? undefined,
+    };
+  }
 
   // settlement mode: re-drive an EXISTING charge row (the fiat leg). The webhook's
   // atomic decide+insert already booked the row against the budget; this pass only
@@ -462,10 +564,11 @@ export async function spend(deps: SpendDeps, cardId: string, req: SpendRequest):
   const user = store.getUser(chain[chain.length - 1]!.user_id);
   if (!user) throw new EngineError("spend", "card has no user row");
 
-  // fee planning: start at minFee (+uniqueness jitter), rebuild if the relayer asks for more
+  // fee planning: start at minFee (+uniqueness jitter), rebuild if the executor asks for more.
+  // A reviewed plan already carries its fee inside the signed leaf.
   const jitter = deps.feeJitter ?? jitteredFee;
-  const feeData = await deps.relayer.getFeeData(CHAINS[chainId].usdc);
-  let feeAtoms = jitter(usdcToAtoms(feeData.minFee));
+  const feeData = preplanned ? null : await deps.relayer.getFeeData(CHAINS[chainId].usdc);
+  let feeAtoms = preplanned ? preplanned.fee_atoms : jitter(usdcToAtoms(feeData!.minFee));
 
   const amountAtoms = req.amountAtoms ?? 0n;
   const workExecutions: WireExecution[] =
@@ -486,6 +589,7 @@ export async function spend(deps: SpendDeps, cardId: string, req: SpendRequest):
   if (!(await codeCheck(user.address as Address, chainId))) {
     authorizationList = await resolveStoredAuth("spend", user, chainId, deps.accountNonce);
   }
+  const redeemer = preplanned ? null : await redeemerFor(deps.relayer, chainId);
 
   const chainDelegations = chain.map((c) => delegationForMode(c, req.mode));
 
@@ -517,58 +621,83 @@ export async function spend(deps: SpendDeps, cardId: string, req: SpendRequest):
   // estimate loop: carve -> estimate -> (fee mismatch? rebuild) -> send
   let lastError: string | null = null;
   for (let attempt = 0; attempt < ESTIMATE_RETRIES; attempt++) {
-    const items = planItems();
-    // the fee leg rides the last item if unpinned, else its own normal-leaf item
-    // (a pinned item must hold ONLY its allowance execution)
-    // feeCollector is chain-specific and the relayer owns the truth (it is returned by
-    // relayer_getFeeData, already fetched above). The FEE_COLLECTOR constant went stale
-    // on both chains; paying the wrong collector makes the relayer refuse the estimate.
-    const feeExec = feeExecution(feeData.feeCollector ?? FEE_COLLECTOR, feeAtoms, chainId);
-    const last = items.at(-1);
-    if (last && !last.pin) last.executions.push(feeExec);
-    else items.push({ executions: [feeExec], pin: null });
+    let transactions: RelayerTransaction[];
+    let est: { success: boolean; error: string | null; requiredPaymentAmount: string | null; context: string | null; raw?: unknown };
+    if (preplanned) {
+      // the reviewed bytes, verbatim; the executor re-checks the digest against the dry run
+      transactions = preplanned.transactions;
+      est = { success: true, error: null, requiredPaymentAmount: null, context: preplanned.context };
+    } else {
+      const items = planItems();
+      // the fee leg rides the last item if unpinned, else its own normal-leaf item
+      // (a pinned item must hold ONLY its allowance execution)
+      // feeCollector is chain-specific and the relayer owns the truth (it is returned by
+      // relayer_getFeeData, already fetched above). The FEE_COLLECTOR constant went stale
+      // on both chains; paying the wrong collector makes the relayer refuse the estimate.
+      const feeExec = feeExecution(feeData!.feeCollector ?? FEE_COLLECTOR, feeAtoms, chainId);
+      const last = items.at(-1);
+      if (last && !last.pin) last.executions.push(feeExec);
+      else items.push({ executions: [feeExec], pin: null });
 
-    const transactions: Array<{ permissionContext: WireDelegation[]; executions: WireExecution[] }> = [];
-    for (const item of items) {
-      const scope =
-        req.mode === "pay"
-          ? payLeafScope(amountAtoms + feeAtoms, chainId)
-          : item.pin
-            ? allowanceLeafScope(item.pin)
-            : contractLeafScope(card.terms.contract!, chainId);
-      const leaf = await withAgentAccount(card.k_agent_enc, async (_account, pk) =>
-        signWithPrivateKey(
-          pk,
-          carveLeafDelegation({
-            parent: chainDelegations[0]!,
-            from: card.k_agent_address,
-            scope: scope as never,
-            extraCaveats: item.pin ? allowancePinCaveats(item.pin, chainId) : undefined,
+      transactions = [];
+      for (const item of items) {
+        const scope =
+          req.mode === "pay"
+            ? payLeafScope(amountAtoms + feeAtoms, chainId)
+            : item.pin
+              ? allowanceLeafScope(item.pin)
+              : contractLeafScope(card.terms.contract!, chainId);
+        const leaf = await withAgentAccount(card.k_agent_enc, async (_account, pk) =>
+          signWithPrivateKey(
+            pk,
+            carveLeafDelegation({
+              parent: chainDelegations[0]!,
+              from: card.k_agent_address,
+              scope: scope as never,
+              extraCaveats: item.pin ? allowancePinCaveats(item.pin, chainId) : undefined,
+              chainId,
+              delegate: redeemer!,
+            }),
             chainId,
-          }),
-          chainId,
-        ),
-      );
-      transactions.push({ permissionContext: [leaf, ...chainDelegations], executions: item.executions });
-    }
-    const est = await deps.relayer.estimate(transactions, authorizationList);
+          ),
+        );
+        transactions.push({ permissionContext: [leaf, ...chainDelegations], executions: item.executions });
+      }
+      est = await deps.relayer.estimate(transactions, authorizationList);
 
-    if (!est.success) {
-      lastError = est.error;
-      const refusal = est.error ? refusalFromEstimateError(est.error, req.mode) : null;
-      if (refusal) throw refusal;
-      throw new EngineError("estimate", `relayer estimate failed: ${est.error ?? "unknown"}`);
-    }
+      if (!est.success) {
+        lastError = est.error;
+        const refusal = est.error ? refusalFromEstimateError(est.error, req.mode) : null;
+        if (refusal) throw refusal;
+        const lane = deps.relayer.kind === "keeperhub" ? "KeeperHub dry run" : "relayer estimate";
+        throw new EngineError("estimate", `${lane} failed: ${est.error ?? "unknown"}`);
+      }
 
-    const required = est.requiredPaymentAmount ? parseAtoms(est.requiredPaymentAmount) : feeAtoms;
-    if (required > feeAtoms) {
-      feeAtoms = jitter(required);
-      // re-check budgets with the real fee before retrying (skip in settle mode)
-      if (!settleRow) validateSpend(deps, chain, req, amountAtoms + feeAtoms, now);
-      continue;
+      const required = est.requiredPaymentAmount ? parseAtoms(est.requiredPaymentAmount) : feeAtoms;
+      if (required > feeAtoms) {
+        feeAtoms = jitter(required);
+        // re-check budgets with the real fee before retrying (skip in settle mode)
+        if (!settleRow) validateSpend(deps, chain, req, amountAtoms + feeAtoms, now);
+        continue;
+      }
     }
 
     if (!est.context) throw new EngineError("estimate", "estimate succeeded but returned no context");
+
+    if (planOnly) {
+      if (!settleRow) validateSpend(deps, chain, req, amountAtoms + feeAtoms, now);
+      return savePlan(deps, {
+        cardId,
+        req,
+        transactions,
+        authorizationList,
+        context: est.context,
+        amountAtoms,
+        feeAtoms,
+        now,
+        chainId,
+      });
+    }
 
     // Budget re-validate + reservation insert as ONE synchronous pair (no await between):
     // the Stripe webhook's fiat leg writes into the SAME budget rows with its own
@@ -581,6 +710,10 @@ export async function spend(deps: SpendDeps, cardId: string, req: SpendRequest):
     // the existing row: only the fee joins the row's budget debit (mirroring what the
     // on-chain enforcers will count).
     const chargeId = settleRow ? settleRow.id : crypto.randomUUID();
+    // a reviewed plan executes at most once: claim it atomically before booking the charge
+    if (preplanned && !deps.plans!.claimPlan(preplanned.id, now)) {
+      throw new EngineError("plan", "plan was already executed or has expired");
+    }
     if (settleRow) {
       store.updateCharge(settleRow.id, { fee_atoms: feeAtoms });
     } else {
@@ -600,7 +733,7 @@ export async function spend(deps: SpendDeps, cardId: string, req: SpendRequest):
       });
     }
 
-    const viaChain = deps.confirmViaChain ?? true;
+    const viaChain = deps.confirmViaChain ?? !executorVerifiesReceipts(deps.relayer);
     // block height BEFORE send: the log-scan window for chain-side confirmation
     const sinceBlock = viaChain ? await publicClient(chainId).getBlockNumber() : 0n;
 
@@ -626,17 +759,28 @@ export async function spend(deps: SpendDeps, cardId: string, req: SpendRequest):
       store.updateCharge(chargeId, { request_id: `claim-${chargeId}`, since_block: sinceBlock });
     }
 
+    if (preplanned) deps.plans!.setPlanStatus(preplanned.id, "executed", chargeId);
+    const digest = encodeRedemption(transactions).digest;
+    deps.plans?.linkDigest(digest, { charge_id: chargeId, card_id: cardId });
+    const purpose: ExecutionPurpose = req.purpose ?? (settleRow ? "settle" : "pay");
+
     let requestId: string;
     try {
       requestId = await trace
         .getTracer("attestpay-engine")
-        .startActiveSpan("1shot_relayer_redeem", async (span) => {
+        .startActiveSpan(deps.relayer.kind === "keeperhub" ? "keeperhub_redeem" : "1shot_relayer_redeem", async (span) => {
           span.setAttribute("chain_id", chainId);
           span.setAttribute("card_id", cardId);
           span.setAttribute("usdc_amount", atomsToUsdc(amountAtoms));
           span.setAttribute("smart_account_address", user.address);
+          span.setAttribute("executor", deps.relayer.kind ?? "1shot");
+          span.setAttribute("plan_digest", digest);
           try {
-            const result = await deps.relayer.send(transactions, est.context!, authorizationList);
+            const result = await deps.relayer.send(transactions, est.context!, authorizationList, {
+              purpose,
+              cardId,
+              chargeId,
+            });
             span.end();
             return result;
           } catch (e) {
@@ -650,6 +794,7 @@ export async function spend(deps: SpendDeps, cardId: string, req: SpendRequest):
       // pre-broadcast failure: settle rows stay 'pending' (the claim above parks
       // them with reconcile rather than re-driving an ambiguous send)
       if (!settleRow) store.updateCharge(chargeId, { status: "failed" });
+      if (preplanned) deps.plans!.setPlanStatus(preplanned.id, "failed", chargeId);
       throw e;
     }
     // record request_id + the broadcast block: reconcile scans the fee-leg log from
@@ -664,6 +809,7 @@ export async function spend(deps: SpendDeps, cardId: string, req: SpendRequest):
           feeAtoms,
           sinceBlock,
           chainId,
+          feeCollector: feeData?.feeCollector,
         })
       : statusToConfirmation(await deps.relayer.waitForStatus(requestId));
 
@@ -689,6 +835,80 @@ export async function spend(deps: SpendDeps, cardId: string, req: SpendRequest):
   }
 
   throw new EngineError("estimate", `estimate loop exhausted: ${lastError ?? "fee kept increasing"}`);
+}
+
+function savePlan(
+  deps: SpendDeps,
+  p: {
+    cardId: string;
+    req: SpendRequest;
+    transactions: RelayerTransaction[];
+    authorizationList: Wire7702Auth[] | undefined;
+    context: string;
+    amountAtoms: bigint;
+    feeAtoms: bigint;
+    now: number;
+    chainId: ChainId;
+  },
+): SpendPlan {
+  if (!deps.plans) throw new EngineError("plan", "reviewed plans are not available on this executor");
+  const encoded = encodeRedemption(p.transactions);
+  const ctx = parsePlanContext(p.context);
+  const planId = `plan_${crypto.randomUUID()}`;
+  const expiresAt = p.now + (deps.planTtlSeconds ?? 600);
+  const redeemer = p.transactions[0]!.permissionContext[0]!.delegate;
+  const simulation = {
+    engine: deps.relayer.kind ?? "1shot",
+    would_revert: false as const,
+    gas_estimate: ctx?.gasEstimate ?? null,
+    simulated_at: ctx?.simulatedAt ?? null,
+    redeemer,
+    execution_count: encoded.executionCount,
+  };
+  deps.plans.insertPlan({
+    id: planId,
+    card_id: p.cardId,
+    digest: encoded.digest,
+    kind: p.req.kind,
+    mode: p.req.mode,
+    to_addr: p.req.to ?? null,
+    amount_atoms: p.amountAtoms,
+    fee_atoms: p.feeAtoms,
+    memo: p.req.memo ?? null,
+    idempotency_key: p.req.idempotencyKey ?? null,
+    transactions: p.transactions,
+    authorization_list: p.authorizationList ?? null,
+    context: p.context,
+    simulation,
+    created_at: p.now,
+    expires_at: expiresAt,
+  });
+  deps.plans.linkDigest(encoded.digest, { card_id: p.cardId });
+
+  // what the period meter will read if this plan executes now
+  const state = cardState(deps.store, p.cardId, p.now);
+  const remaining = state?.remaining_this_period;
+  const after =
+    remaining === null || remaining === undefined
+      ? null
+      : atomsToUsdc(usdcToAtoms(remaining) - p.amountAtoms - p.feeAtoms);
+
+  return {
+    status: "planned",
+    plan_id: planId,
+    card_id: p.cardId,
+    digest: encoded.digest,
+    executor: deps.relayer.kind ?? "1shot",
+    workflow: p.req.purpose ?? "pay",
+    to: p.req.to ?? null,
+    amount: atomsToUsdc(p.amountAtoms),
+    fee: atomsToUsdc(p.feeAtoms),
+    total: atomsToUsdc(p.amountAtoms + p.feeAtoms),
+    ...(p.req.memo ? { memo: p.req.memo } : {}),
+    simulation,
+    remaining_this_period_after: after,
+    expires_at: expiresAt,
+  };
 }
 
 export function statusToConfirmation(st: { status: number | null; txHash: Hex | null }): {
