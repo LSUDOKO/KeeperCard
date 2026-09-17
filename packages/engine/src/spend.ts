@@ -383,6 +383,7 @@ export function validateSpend(
 // ---------------------------------------------------------------------------
 
 function refusalFromEstimateError(err: string, mode: SpendMode): RefusalError | null {
+  if (/^usdc_depegged/.test(err)) return new RefusalError("usdc_depegged", err.replace(/^usdc_depegged:\s*/, ""));
   if (/PeriodTransferEnforcer/i.test(err)) return new RefusalError("over_period_limit", `chain refused: ${err}`);
   if (/TransferAmountEnforcer/i.test(err)) return new RefusalError("over_lifetime_limit", `chain refused: ${err}`);
   if (/TimestampEnforcer/i.test(err)) return new RefusalError("card_expired", `chain refused: ${err}`);
@@ -790,6 +791,7 @@ async function runSpend(deps: SpendDeps, cardId: string, req: SpendRequest, plan
               purpose,
               cardId,
               chargeId,
+              amountAtoms,
             });
             span.end();
             return result;

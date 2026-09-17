@@ -23,6 +23,12 @@ export const REFUSAL_CODES = [
   "price_exceeds_max",
   "no_fiat_card",
   "invalid_terms",
+  // The unit the card's budget is written in has moved: Chainlink's USDC/USD reads
+  // below the configured floor. A policy refusal, not an outage — nothing is broken,
+  // KeeperCard is declining to spend a dollar that is not currently worth one.
+  "usdc_depegged",
+  // KeeperHub's in-workflow risk check refused to broadcast (guarded-card-payment).
+  "risk_refused",
 ] as const;
 
 export type RefusalCode = (typeof REFUSAL_CODES)[number];

@@ -21,6 +21,7 @@ import type { Capabilities, EstimateResult, FeeData, RelayerStatus, RelayerTrans
 import type { Wire7702Auth } from "../types";
 import { encodeRedemption } from "./calldata";
 import { KeeperHubClient, KeeperHubError, TERMINAL_WORKFLOW_STATUSES } from "./client";
+import { DepegGuard } from "./treasury";
 import type { KeeperHubConfig, KeeperHubWorkflowKey } from "./config";
 import type { KeeperHubStore } from "./store";
 import {
@@ -65,17 +66,30 @@ export function parseKeeperHubRequestId(requestId: string | null | undefined): K
 /**
  * Which provisioned workflow carries this spend.
  *
- * `x402` and `admin` deliberately ride the `pay` workflow: they are ordinary
- * redemptions on the same contract, and a separate workflow would only duplicate
- * the definition. `settle` and `credit` get their own so a fiat settlement or a
- * credit draw is separable in KeeperHub's own execution history — which is the
- * audit trail an operator actually reads.
+ * Every one of these is the same redemption on the same contract; what differs is whose
+ * history it lands in. `x402` and `settle` get their own workflow so paid-API traffic
+ * and Visa settlements are separable in KeeperHub's execution history — the audit trail
+ * an operator actually reads. `credit` and `admin` ride `pay`.
+ *
+ * An agent-initiated payment at or above `guardedMinAtoms` goes through `guarded`, whose
+ * risk check sits inside the workflow. Only `pay` is ever upgraded: a settlement or an
+ * x402 charge was already authorised elsewhere, and refusing it late would strand it.
  */
-export function workflowKeyFor(purpose: ExecutionPurpose | undefined): KeeperHubWorkflowKey {
-  if (purpose === "credit") return "credit";
+export function workflowKeyFor(
+  purpose: ExecutionPurpose | undefined,
+  amount: { amountAtoms?: bigint; guardedMinAtoms?: bigint | null } = {},
+): KeeperHubWorkflowKey {
   if (purpose === "settle") return "settle";
+  if (purpose === "x402") return "x402";
+  if (purpose === undefined || purpose === "pay") {
+    const { amountAtoms, guardedMinAtoms } = amount;
+    if (guardedMinAtoms != null && amountAtoms !== undefined && amountAtoms >= guardedMinAtoms) return "guarded";
+  }
   return "pay";
 }
+
+/** Redemption workflows that fall back to `pay` when they are not provisioned. */
+const REDEMPTION_FALLBACK: ReadonlySet<KeeperHubWorkflowKey> = new Set(["x402", "settle", "guarded"]);
 
 export type Bootstrap7702 = (authorizationList: Wire7702Auth[], chainId: ChainId) => Promise<Hex>;
 
@@ -102,6 +116,7 @@ export class KeeperHubExecutor implements Executor {
   readonly client: KeeperHubClient;
   readonly config: KeeperHubConfig;
   private readonly assessRisk: boolean;
+  private readonly depeg: DepegGuard;
   private readonly store: KeeperHubStore | null;
   private readonly now: () => number;
   private readonly sleep: (ms: number) => Promise<void>;
@@ -117,6 +132,7 @@ export class KeeperHubExecutor implements Executor {
     this.sleep = opts.sleep ?? ((ms) => new Promise((r) => setTimeout(r, ms)));
     this.bootstrap7702 = opts.bootstrap7702 ?? null;
     this.assessRisk = opts.assessRisk ?? true;
+    this.depeg = new DepegGuard(this.client, opts.config.depegFloor, { now: this.now });
     this.wallet = opts.config.walletAddress;
   }
 
@@ -188,6 +204,15 @@ export class KeeperHubExecutor implements Executor {
         };
       }
       await this.bootstrap7702(authorizationList, this.chainId);
+    }
+
+    // Cards are denominated in USDC. When Chainlink says USDC is off its peg, every
+    // budget means something other than what its owner approved, so the dry run refuses
+    // before anything is signed for. A feed that cannot be read refuses nothing.
+    const depegged = await this.depeg.refusal();
+    if (depegged) {
+      keeperhubDryRunsTotal.add(1, { outcome: "depegged" });
+      return { success: false, requiredPaymentAmount: null, context: null, error: depegged, raw: null };
     }
 
     const encoded = encodeRedemption(transactions);
@@ -335,13 +360,16 @@ export class KeeperHubExecutor implements Executor {
       }
     }
 
-    const workflowKey = workflowKeyFor(opts.purpose);
-    // credit and settle are the pay redemption with different bookkeeping, so an
+    const guardedMinAtoms = this.config.guardedMinUsdc ? BigInt(Math.round(Number(this.config.guardedMinUsdc) * 1e6)) : null;
+    let workflowKey = workflowKeyFor(opts.purpose, { amountAtoms: opts.amountAtoms, guardedMinAtoms });
+    // x402, settle and guarded are the pay redemption with different bookkeeping, so an
     // un-provisioned one falls back to `pay` rather than dropping to direct execution:
     // the redemption still runs through a reviewed workflow either way.
-    const workflowId =
-      this.config.workflows[workflowKey] ??
-      (workflowKey === "credit" || workflowKey === "settle" ? this.config.workflows.pay : null);
+    let workflowId = this.config.workflows[workflowKey];
+    if (!workflowId && REDEMPTION_FALLBACK.has(workflowKey)) {
+      workflowKey = "pay";
+      workflowId = this.config.workflows.pay;
+    }
     const idempotencyKey = `keepercard:redeem:${this.chainId}:${encoded.digest}`;
 
     return traceKeeperHub(
@@ -361,6 +389,8 @@ export class KeeperHubExecutor implements Executor {
               workflowId,
               {
                 functionArgs: encoded.functionArgs,
+                // the raw calldata, for workflows that inspect it (guarded's risk node)
+                calldata: encoded.data,
                 digest: encoded.digest,
                 chainId: String(this.chainId),
                 delegationManager: DELEGATION_MANAGER,
@@ -478,8 +508,19 @@ export class KeeperHubExecutor implements Executor {
     const verified = s.transactionHashes.find((t) => t.verified !== false && t.receiptStatus !== "reverted");
     const anyHash = s.transactionHashes[0]?.hash ?? null;
     if (s.status === "success") {
-      this.settleRecord(executionId, "completed", verified?.hash ?? anyHash, null, { node_statuses: s.nodeStatuses });
-      return { status: 200, txHash: verified?.hash ?? anyHash, raw: s };
+      const hash = verified?.hash ?? anyHash;
+      // A redemption run that finished without broadcasting is NOT a payment. It happens
+      // when a Condition routes around the write — guarded-card-payment's risk check
+      // refusing — and reporting it as confirmed would book a charge that never moved.
+      const row = this.store?.byExecutionId(executionId);
+      if (!hash && row?.action === "execute") {
+        const reason = "the workflow finished without broadcasting a transaction (a Condition refused the write)";
+        this.settleRecord(executionId, "failed", null, reason, { node_statuses: s.nodeStatuses });
+        emitKeeperHubExecutionFailed({ reason, executionId, workflow: row.workflow_key ?? "pay", cardId: row.card_id, chargeId: row.charge_id });
+        return { status: 500, txHash: null, raw: s };
+      }
+      this.settleRecord(executionId, "completed", hash, null, { node_statuses: s.nodeStatuses });
+      return { status: 200, txHash: hash, raw: s };
     }
     if (TERMINAL_WORKFLOW_STATUSES.has(s.status)) {
       const reason = typeof s.errorContext === "string" ? s.errorContext : JSON.stringify(s.errorContext ?? s.status);

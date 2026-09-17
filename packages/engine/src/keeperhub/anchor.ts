@@ -1,37 +1,80 @@
-// attestcoin-cross-chain-proof, leg 1: anchor a confirmed AttestPay payment on
-// Ethereum Sepolia through KeeperHub instead of this process's own key.
+// payment-receipt-anchor: write an on-chain receipt for a confirmed KeeperCard payment
+// through KeeperHub, from KeeperHub's wallet rather than this process's own key.
 //
-//   converge   already anchored (a crash after the tx landed)? reuse that anchor
+//   converge   already anchored (a crash after the tx landed)? reuse that receipt
 //   dry run    simulate PaymentAnchor.anchorPayment from the KeeperHub wallet
-//   execute    the attestcoin-cross-chain-proof workflow (or direct execution), with
-//              an idempotency key per (charge, attempt generation): a retried sweep
+//   execute    the payment-receipt-anchor workflow (or direct execution), with an
+//              idempotency key per (charge, attempt generation): a retried sweep
 //              replays the same run instead of anchoring twice
-//   verify     KeeperHub's verified receipt gives the tx hash + block height the
-//              Creditcoin proof needs
+//   verify     KeeperHub's verified receipt gives the tx hash of the anchor
 //
-// Leg 2 (AttestPayASC.verifyPayment on Creditcoin CC3) stays on AttestPay's direct
-// path: KeeperHub's chain list does not include CC3.
+// The anchor lives on the settlement chain, so a receipt is written where the payment
+// it describes happened and both are checkable on one explorer.
 
-import type { Address, Hex } from "viem";
-import { AttestcoinError } from "../attestcoin/client";
-import { cardIdToBytes32 } from "../attestcoin/config";
-import type { AnchorRequest } from "../attestcoin/types";
+import { keccak256, toHex, type Address, type Hex } from "viem";
 import { KeeperHubClient, TERMINAL_WORKFLOW_STATUSES } from "./client";
 import type { KeeperHubConfig } from "./config";
 import type { KeeperHubStore } from "./store";
 import { emitKeeperHubExecutionFailed, keeperhubExecutionsTotal, traceKeeperHub } from "./telemetry";
-import { ETHEREUM_SEPOLIA_CHAIN_ID, PAYMENT_ANCHOR_ABI } from "./workflows";
+import { PAYMENT_ANCHOR_ABI, PAYMENT_ANCHOR_EVENT_ABI } from "./workflows";
+
+/** One confirmed payment, as PaymentAnchor records it. */
+export type AnchorRequest = {
+  /** KeeperCard charge id this receipt corresponds to. */
+  chargeId: string;
+  /** KeeperCard card id (the string id; hashed to bytes32 at the contract boundary). */
+  cardId: string;
+  /** The card tree's root delegator: where the USDC actually left from. */
+  payer: Address;
+  /** Payment recipient. */
+  merchant: Address;
+  /** USDC atoms (6 decimals). */
+  amountAtoms: bigint;
+  /** EVM chain id the USDC moved on (8453 Base, 84532 Base Sepolia). */
+  sourceChainId: number;
+  /** The payment's transaction hash on `sourceChainId`. */
+  sourceTxHash: Hex;
+  /** Unix seconds the payment confirmed. */
+  paidAt: number;
+  memo: string;
+};
+
+/** A receipt that could not be written. `retryable` separates "try the next sweep"
+ * (unfunded wallet, simulator down, run still executing) from a contract revert. */
+export class AnchorError extends Error {
+  constructor(message: string, readonly retryable = true) {
+    super(message);
+    this.name = "AnchorError";
+  }
+}
+
+/** PaymentAnchor keys cards by bytes32; KeeperCard ids are uuids. */
+export function cardIdToBytes32(cardId: string): Hex {
+  return keccak256(toHex(cardId));
+}
+
+const IS_ANCHORED_ABI = [
+  {
+    type: "function",
+    name: "isAnchored",
+    stateMutability: "view",
+    inputs: [
+      { name: "sourceChainId", type: "uint256" },
+      { name: "sourceTxHash", type: "bytes32" },
+    ],
+    outputs: [{ type: "bool" }],
+  },
+] as const;
 
 export type KeeperHubAnchorerOptions = {
   client: KeeperHubClient;
   config: KeeperHubConfig;
   store?: KeeperHubStore | null;
   anchorAddress: Address;
-  anchorChainId?: number;
-  /** already-anchored lookup (AttestcoinClient.existingAnchor) */
-  existingAnchor?: (req: AnchorRequest) => Promise<{ txHash: string; height: number } | null>;
-  /** block height fallback when KeeperHub's receipt omits it (AttestcoinClient.sourceBlockOf) */
-  blockOf?: (txHash: string) => Promise<number | null>;
+  /** chain the PaymentAnchor lives on (the settlement chain) */
+  anchorChainId: number;
+  /** already-anchored lookup; defaults to reading PaymentAnchor through KeeperHub */
+  existingAnchor?: (req: AnchorRequest) => Promise<{ txHash: string | null; height: number | null } | null>;
   /** how long one sweep tick waits on KeeperHub before yielding (default 60s) */
   waitMs?: number;
   pollMs?: number;
@@ -53,8 +96,7 @@ export function anchorFunctionArgs(req: AnchorRequest): string {
 }
 
 export class KeeperHubAnchorer {
-  private readonly o: Required<Pick<KeeperHubAnchorerOptions, "waitMs" | "pollMs" | "now" | "sleep" | "anchorChainId">> &
-    KeeperHubAnchorerOptions;
+  private readonly o: Required<Pick<KeeperHubAnchorerOptions, "waitMs" | "pollMs" | "now" | "sleep">> & KeeperHubAnchorerOptions;
 
   constructor(opts: KeeperHubAnchorerOptions) {
     this.o = {
@@ -62,7 +104,6 @@ export class KeeperHubAnchorer {
       pollMs: 3_000,
       now: () => Date.now(),
       sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
-      anchorChainId: ETHEREUM_SEPOLIA_CHAIN_ID,
       ...opts,
     };
   }
@@ -73,12 +114,45 @@ export class KeeperHubAnchorer {
     return (this.o.store?.forCharge(chargeId) ?? []).filter((r) => r.action === "anchor" && r.status === "failed").length;
   }
 
-  async anchorPayment(req: AnchorRequest): Promise<{ txHash: string; height: number }> {
+  /**
+   * Has this payment already been receipted? Asked of the contract through KeeperHub,
+   * so a crash between "the anchor landed" and "KeeperCard wrote it down" converges on
+   * the receipt that exists instead of paying for a second one that would revert.
+   */
+  private async alreadyAnchored(req: AnchorRequest): Promise<{ txHash: string | null; height: number | null } | null> {
+    if (this.o.existingAnchor) return this.o.existingAnchor(req);
+    const read = await this.o.client
+      .simulateContractCall({
+        contractAddress: this.o.anchorAddress,
+        chainId: this.o.anchorChainId,
+        functionName: "isAnchored",
+        functionArgs: JSON.stringify([String(req.sourceChainId), req.sourceTxHash]),
+        abi: JSON.stringify(IS_ANCHORED_ABI),
+      })
+      .catch(() => null);
+    const anchored = (read?.raw as { result?: unknown } | null | undefined)?.result === true;
+    if (!anchored) return null;
+    // find the receipt's own transaction; if the scan window misses it, the receipt
+    // still exists and is reported with an unknown hash rather than re-written
+    const events = await this.o.client
+      .queryEvents({
+        contractAddress: this.o.anchorAddress,
+        chainId: this.o.anchorChainId,
+        abi: JSON.stringify(PAYMENT_ANCHOR_EVENT_ABI),
+        eventName: "PaymentAnchored",
+        blockCount: 50_000,
+      })
+      .catch(() => null);
+    const hit = events?.events.find((e) => String(e.args.sourceTxHash).toLowerCase() === req.sourceTxHash.toLowerCase());
+    return { txHash: hit?.transactionHash ?? null, height: hit?.blockNumber ?? null };
+  }
+
+  async anchorPayment(req: AnchorRequest): Promise<{ txHash: string | null; height: number | null }> {
     return traceKeeperHub(
       "execute",
       { "keeperhub.workflow": "anchor", charge_id: req.chargeId, card_id: req.cardId, "keeperhub.chain_id": this.o.anchorChainId },
       async (span) => {
-        const existing = await this.o.existingAnchor?.(req);
+        const existing = await this.alreadyAnchored(req);
         if (existing) {
           span.setAttribute("keeperhub.anchor_preexisting", true);
           return existing;
@@ -114,7 +188,7 @@ export class KeeperHubAnchorer {
           const reason = sim.revertReason ?? sim.error ?? "simulation failed";
           // unfunded wallet / simulator down are transient; a contract revert is not
           const retryable = sim.code === "insufficient_balance" || sim.failureKind === "unavailable";
-          throw new AttestcoinError("anchor", `KeeperHub dry run of anchorPayment failed: ${reason}`, retryable);
+          throw new AnchorError(`KeeperHub dry run of anchorPayment failed: ${reason}`, retryable);
         }
 
         const key = `keepercard:anchor:${req.chargeId}:${this.generation(req.chargeId)}`;
@@ -156,21 +230,18 @@ export class KeeperHubAnchorer {
         while (true) {
           const outcome = surface === "workflow" ? await this.pollWorkflow(executionId) : await this.pollDirect(executionId);
           if (outcome.state === "done") {
-            const height = outcome.height ?? (await this.o.blockOf?.(outcome.txHash)) ?? null;
-            if (height === null) {
-              throw new AttestcoinError("anchor", `anchor ${outcome.txHash} landed but its block height is not readable yet`);
-            }
-            if (record) this.o.store!.update(record.id, { status: "completed", tx_hash: outcome.txHash as Hex, detail: { height } });
+            const height = outcome.height ?? null;
+            if (record) this.o.store!.update(record.id, { status: "completed", tx_hash: outcome.txHash as Hex, detail: { height, source_tx_hash: req.sourceTxHash } });
             return { txHash: outcome.txHash, height };
           }
           if (outcome.state === "failed") {
             if (record) this.o.store!.update(record.id, { status: "failed", error: outcome.reason });
             emitKeeperHubExecutionFailed({ executionId, workflow: "anchor", reason: outcome.reason, cardId: req.cardId, chargeId: req.chargeId });
-            throw new AttestcoinError("anchor", `KeeperHub anchor run ${executionId} failed: ${outcome.reason}`);
+            throw new AnchorError(`KeeperHub anchor run ${executionId} failed: ${outcome.reason}`, false);
           }
           if (this.o.now() >= deadline) {
             // not a failure: the next sweep polls the same run via the same key
-            throw new AttestcoinError("anchor", `KeeperHub anchor run ${executionId} still executing`);
+            throw new AnchorError(`KeeperHub anchor run ${executionId} still executing`);
           }
           await this.o.sleep(this.o.pollMs);
         }

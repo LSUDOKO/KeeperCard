@@ -23,6 +23,9 @@ export type SendOptions = {
   purpose?: ExecutionPurpose;
   cardId?: string;
   chargeId?: string;
+  /** What the redemption moves, fee excluded. Lets the executor route a high-value
+   * payment through a stricter workflow; absent means "unknown", never "zero". */
+  amountAtoms?: bigint;
 };
 
 export interface Executor {

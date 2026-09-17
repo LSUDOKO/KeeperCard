@@ -65,6 +65,22 @@ export type KeeperHubWorkflow = WorkflowDefinition & {
   updatedAt?: string;
 };
 
+export type TokenBalance = { atoms: bigint; decimals: number; symbol: string | null };
+
+export type PriceFeedPair = "usdc-usd" | "eth-usd";
+
+export type PriceQuote = {
+  pair: PriceFeedPair;
+  raw: bigint;
+  decimals: number;
+  /** `raw` scaled by `decimals`, for display and threshold checks */
+  price: number;
+  /** unix seconds of the round, or null when the feed did not say */
+  updatedAt: number | null;
+  /** the chain the feed was read on (the reference chain, not necessarily the settlement chain) */
+  chainId: number;
+};
+
 /** KeeperHub's risk vocabulary, worst last. */
 export const RISK_LEVELS = ["low", "medium", "high", "critical"] as const;
 export type RiskLevel = (typeof RISK_LEVELS)[number];
@@ -472,6 +488,59 @@ export class KeeperHubClient {
   // ---------------------------------------------------------------------------
   // direct execution (dry run + broadcast share ONE request body)
   // ---------------------------------------------------------------------------
+
+  // ---------------------------------------------------------------------------
+  // chain reads through KeeperHub's RPC fleet (no gas, no wallet)
+  // ---------------------------------------------------------------------------
+
+  /** Native balance, in wei. Null when the read could not be completed. */
+  async nativeBalance(address: Address, chainId: number): Promise<bigint | null> {
+    const { json } = await this.request("check_balance", "/execute/node", {
+      method: "POST",
+      body: { actionType: "web3/check-balance", config: { network: String(chainId), address } },
+      acceptStatuses: [400],
+    });
+    const r = asRecord(asRecord(json).result);
+    return r.success === true && r.balanceWei !== undefined ? BigInt(String(r.balanceWei)) : null;
+  }
+
+  /** ERC-20 balance in the token's own atoms. Null when the read could not be completed. */
+  async tokenBalance(address: Address, token: Address, chainId: number): Promise<TokenBalance | null> {
+    const { json } = await this.request("check_token_balance", "/execute/node", {
+      method: "POST",
+      body: { actionType: "web3/check-token-balance", config: { network: String(chainId), address, tokenConfig: token } },
+      acceptStatuses: [400],
+    });
+    const r = asRecord(asRecord(json).result);
+    const b = asRecord(r.balance);
+    if (r.success !== true || b.balanceRaw === undefined) return null;
+    return { atoms: BigInt(String(b.balanceRaw)), decimals: Number(b.decimals ?? 0), symbol: str(b.symbol) };
+  }
+
+  /**
+   * A Chainlink reference price, read through KeeperHub's protocol actions.
+   *
+   * Decimals are read, never assumed: Base's USDC/USD aggregator reports 18 where most
+   * feeds report 8, so a hardcoded 8 would misread $1.00 as ten billion dollars.
+   */
+  async priceFeed(pair: PriceFeedPair, chainId: number): Promise<PriceQuote | null> {
+    const read = async (slug: string) => {
+      const { json } = await this.request("price_feed", `/execute/chainlink/${slug}`, {
+        method: "POST",
+        body: { network: String(chainId) },
+        acceptStatuses: [400, 422],
+      });
+      return asRecord(json);
+    };
+    const [round, dec] = await Promise.all([read(`${pair}-latest-round-data`), read(`${pair}-decimals`)]);
+    const answer = asRecord(round.result).answer;
+    if (round.success !== true || dec.success !== true || answer === undefined) return null;
+    const decimals = Number(dec.result);
+    if (!Number.isFinite(decimals)) return null;
+    const raw = BigInt(String(answer));
+    const updatedAt = Number(asRecord(round.result).updatedAt ?? 0);
+    return { pair, raw, decimals, price: Number(raw) / 10 ** decimals, updatedAt: updatedAt || null, chainId };
+  }
 
   /**
    * KeeperHub's pre-signature risk read on a piece of calldata.

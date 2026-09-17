@@ -10,4 +10,6 @@ export * from "./bootstrap";
 export * from "./workflows";
 export * from "./anchor";
 export * from "./attestation";
+export * from "./treasury";
+export * from "./receipts";
 export * from "./unconfigured";

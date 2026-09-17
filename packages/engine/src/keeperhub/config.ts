@@ -1,9 +1,9 @@
-// KeeperHub configuration: the execution layer underneath AttestPay's authorization
-// layer. AttestPay decides what an agent may spend; KeeperHub moves the money.
+// KeeperHub configuration: the execution layer underneath KeeperCard's authorization
+// layer. KeeperCard decides what an agent may spend; KeeperHub moves the money.
 //
-// Same env conventions as the Attestcoin integration (attestcoin/config.ts): an empty
-// string is unset, public defaults where a default is safe, and a single function
-// that says WHY the integration is off so the boot log can say it loudly.
+// Env conventions: an empty string is unset, public defaults where a default is safe,
+// and a single function that says WHY the integration is off so the boot log can say
+// it loudly.
 
 import { isAddress, type Address } from "viem";
 
@@ -12,12 +12,9 @@ export const KEEPERHUB_ENV = {
   apiBase: "KEEPERHUB_API_BASE",
   mcpUrl: "KEEPERHUB_MCP_URL",
   walletAddress: "KEEPERHUB_WALLET_ADDRESS",
-  workflowPay: "KEEPERHUB_WORKFLOW_PAY",
-  workflowRecovery: "KEEPERHUB_WORKFLOW_RECOVERY",
-  workflowSettle: "KEEPERHUB_WORKFLOW_SETTLE",
-  workflowAnchor: "KEEPERHUB_WORKFLOW_ANCHOR",
-  workflowCredit: "KEEPERHUB_WORKFLOW_CREDIT",
-  workflowNotify: "KEEPERHUB_WORKFLOW_NOTIFY",
+  receiptAnchor: "KEEPERHUB_RECEIPT_ANCHOR_ADDRESS",
+  guardedMinUsdc: "KEEPERHUB_GUARDED_MIN_USDC",
+  depegFloor: "KEEPERHUB_DEPEG_FLOOR",
   dryRunRequired: "KEEPERHUB_DRY_RUN_REQUIRED",
   planTtlSeconds: "KEEPERHUB_PLAN_TTL_SECONDS",
   gasFeeUsdc: "KEEPERHUB_GAS_FEE_USDC",
@@ -29,18 +26,64 @@ export const KEEPERHUB_ENV = {
 export const DEFAULT_KEEPERHUB_API_BASE = "https://app.keeperhub.com/api";
 export const DEFAULT_KEEPERHUB_MCP_URL = "https://app.keeperhub.com/mcp";
 
-/** The six workflows AttestPay provisions in KeeperHub (docs/keeperhub/workflows.md). */
-export const KEEPERHUB_WORKFLOW_KEYS = ["pay", "recovery", "settle", "anchor", "credit", "notify"] as const;
+/**
+ * Every workflow KeeperCard provisions in KeeperHub (docs/keeperhub/workflows.md).
+ *
+ * Four kinds, by what starts them:
+ *   manual    pay · x402 · settle · guarded · anchor   — KeeperCard executes them per spend
+ *   schedule  treasury · market                        — KeeperHub's own cron
+ *   on-chain  receipts (Event) · fees (Transfer)       — KeeperHub watches the chain
+ *   callback  recovery · sweep · notify                — need a Pro action or an integration
+ */
+export const KEEPERHUB_WORKFLOW_KEYS = [
+  "pay",
+  "x402",
+  "settle",
+  "guarded",
+  "anchor",
+  "receipts",
+  "fees",
+  "treasury",
+  "market",
+  "recovery",
+  "sweep",
+  "notify",
+] as const;
 export type KeeperHubWorkflowKey = (typeof KEEPERHUB_WORKFLOW_KEYS)[number];
 
 export const KEEPERHUB_WORKFLOW_NAMES: Record<KeeperHubWorkflowKey, string> = {
   pay: "card-payment-redemption",
+  x402: "x402-settlement",
+  settle: "fiat-settlement",
+  guarded: "guarded-card-payment",
+  anchor: "payment-receipt-anchor",
+  receipts: "receipt-event-watcher",
+  fees: "fee-income-watcher",
+  treasury: "treasury-monitor",
+  market: "market-guard",
   recovery: "stuck-charge-recovery",
-  settle: "fiat-settlement-sweep",
-  anchor: "attestcoin-cross-chain-proof",
-  credit: "credit-line-draw-repay",
+  sweep: "fiat-settlement-sweep",
   notify: "notification-relay",
 };
+
+/** What starts each workflow — shown in the dashboard and used by the provisioner. */
+export const KEEPERHUB_WORKFLOW_TRIGGERS: Record<KeeperHubWorkflowKey, "Manual" | "Schedule" | "Event" | "Transfer"> = {
+  pay: "Manual",
+  x402: "Manual",
+  settle: "Manual",
+  guarded: "Manual",
+  anchor: "Manual",
+  receipts: "Event",
+  fees: "Transfer",
+  treasury: "Schedule",
+  market: "Schedule",
+  recovery: "Schedule",
+  sweep: "Schedule",
+  notify: "Manual",
+};
+
+/** `KEEPERHUB_WORKFLOW_<KEY>`: an explicit id. Optional — ids are resolved by name at boot. */
+export const workflowEnvVar = (key: KeeperHubWorkflowKey): string => `KEEPERHUB_WORKFLOW_${key.toUpperCase()}`;
 
 export type KeeperHubConfig = {
   apiKey: string;
@@ -56,8 +99,14 @@ export type KeeperHubConfig = {
   /** USDC reimbursed to the KeeperHub wallet per redemption for the gas it fronts. */
   gasFeeUsdc: string;
   gasLimitMultiplier: string;
-  /** Shared secret KeeperHub workflows present when they call back into AttestPay. */
+  /** Shared secret KeeperHub workflows present when they call back into KeeperCard. */
   hookSecret: string | null;
+  /** PaymentAnchor on the settlement chain: where confirmed payments get an on-chain receipt. */
+  receiptAnchorAddress: Address | null;
+  /** Payments at or above this many USDC run through guarded-card-payment. Null = never. */
+  guardedMinUsdc: string | null;
+  /** Refuse a USDC payment when Chainlink's USDC/USD reads below this. Null disables the guard. */
+  depegFloor: number | null;
 };
 
 export type ExecutorMode = "keeperhub" | "1shot";
@@ -86,6 +135,8 @@ export function keeperhubConfig(env: Env = process.env): KeeperHubConfig | null 
   const wallet = read(env, KEEPERHUB_ENV.walletAddress);
   const ttl = Number(read(env, KEEPERHUB_ENV.planTtlSeconds) ?? "600");
   const gasFee = read(env, KEEPERHUB_ENV.gasFeeUsdc) ?? "0.01";
+  const anchor = read(env, KEEPERHUB_ENV.receiptAnchor);
+  const guarded = read(env, KEEPERHUB_ENV.guardedMinUsdc);
   if (!/^\d+(\.\d{1,6})?$/.test(gasFee)) {
     throw new Error(`${KEEPERHUB_ENV.gasFeeUsdc}=${gasFee} is not a USDC decimal`);
   }
@@ -94,21 +145,28 @@ export function keeperhubConfig(env: Env = process.env): KeeperHubConfig | null 
     apiBase: (read(env, KEEPERHUB_ENV.apiBase) ?? DEFAULT_KEEPERHUB_API_BASE).replace(/\/+$/, ""),
     mcpUrl: read(env, KEEPERHUB_ENV.mcpUrl) ?? DEFAULT_KEEPERHUB_MCP_URL,
     walletAddress: wallet && isAddress(wallet) ? (wallet as Address) : null,
-    workflows: {
-      pay: read(env, KEEPERHUB_ENV.workflowPay) ?? null,
-      recovery: read(env, KEEPERHUB_ENV.workflowRecovery) ?? null,
-      settle: read(env, KEEPERHUB_ENV.workflowSettle) ?? null,
-      anchor: read(env, KEEPERHUB_ENV.workflowAnchor) ?? null,
-      credit: read(env, KEEPERHUB_ENV.workflowCredit) ?? null,
-      notify: read(env, KEEPERHUB_ENV.workflowNotify) ?? null,
-    },
+    workflows: Object.fromEntries(
+      KEEPERHUB_WORKFLOW_KEYS.map((k) => [k, read(env, workflowEnvVar(k)) ?? null]),
+    ) as Record<KeeperHubWorkflowKey, string | null>,
     // Default ON: the dry-run gate is the whole point of the integration.
     dryRunRequired: read(env, KEEPERHUB_ENV.dryRunRequired) !== "0",
     planTtlSeconds: Number.isFinite(ttl) && ttl > 0 ? ttl : 600,
     gasFeeUsdc: gasFee,
     gasLimitMultiplier: read(env, KEEPERHUB_ENV.gasLimitMultiplier) ?? "1.5",
     hookSecret: read(env, KEEPERHUB_ENV.hookSecret) ?? null,
+    receiptAnchorAddress: anchor && isAddress(anchor) ? (anchor as Address) : null,
+    guardedMinUsdc: guarded && /^\d+(\.\d{1,6})?$/.test(guarded) ? guarded : null,
+    depegFloor: depegFloor(read(env, KEEPERHUB_ENV.depegFloor)),
   };
+}
+
+/** Default 0.98; "0"/"off" disables. A malformed value keeps the default rather than
+ * silently turning a safety check off. */
+function depegFloor(raw: string | undefined): number | null {
+  if (raw === undefined) return 0.98;
+  if (raw === "0" || raw.toLowerCase() === "off") return null;
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 && n < 1.5 ? n : 0.98;
 }
 
 /** Why KeeperHub is not configured, or null when it is. */
