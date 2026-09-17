@@ -5,8 +5,52 @@ These are those transactions, plus the checks that make them evidence rather tha
 
 | What | Chain | Transaction |
 |---|---|---|
+| **Card payment via ERC-7710 delegation** | Base Sepolia | [`0x2e52bc36…a88ca755`](https://sepolia.basescan.org/tx/0x2e52bc363c82874b3ac085c0623f6a1ff62b10f79140d16c217b7a88a88ca755) |
 | USDC transfer, 1.50 USDC | Base Sepolia | [`0x88a28cef…d945eb9`](https://sepolia.basescan.org/tx/0x88a28cef9cec59c8a7a298507ac2de19eac20e42b589dfb9734da9f15d945eb9) |
 | `PaymentAnchor.anchorPayment` | Ethereum Sepolia | [`0x3eafda4b…c694a2f8`](https://sepolia.etherscan.io/tx/0x3eafda4b16c341b20de24d6868a4646c54881ab4f86a68941c5b69c3c694a2f8) |
+
+---
+
+## 0. A card payment: the full product path
+
+The one that matters most — an agent spending a scoped card, end to end, with KeeperHub
+executing. `keeperhub_dry_run` → review the plan → `pay` with that `plan_id`.
+
+| | |
+|---|---|
+| Chain | Base Sepolia (84532) |
+| Tx | [`0x2e52bc36…a88ca755`](https://sepolia.basescan.org/tx/0x2e52bc363c82874b3ac085c0623f6a1ff62b10f79140d16c217b7a88a88ca755) |
+| Block | 46941677 · `gasUsed` 449128 · `status` 0x1 |
+| Card account | `0xe02D720FE69Dd45C1F12dB8A97A0B30C17853AC8` (EIP-7702 upgraded by the sponsor) |
+
+The receipt carries **two USDC Transfer events in one atomic transaction**, which is the
+whole shape of an AttestPay payment:
+
+| From | To | Amount | What |
+|---|---|---|---|
+| `0xe02D72…3AC8` | `0x66b6…EC5a` | 0.010000 USDC | the merchant payment |
+| `0xe02D72…3AC8` | `0x4F71…D441` | 0.010552 USDC | the gas-fee leg to KeeperHub's wallet |
+
+The card's remaining budget moved `3 → 2.979448 USDC` — exactly the sum of both legs, so
+the ledger and the chain agree.
+
+### What this transaction proves that the others do not
+
+The transfers below move value through KeeperHub directly. This one moves it **under an
+ERC-7710 delegation**: the card's caveats were enforced on-chain by the DelegationManager,
+the calldata was dry-run and reviewed first, and the executed bytes are the reviewed bytes.
+That is the product, not just the rail.
+
+Two fixes had to land before it could work, both found by testing against the live chain:
+
+- **The EIP-7702 upgrade.** KeeperHub submits ordinary type-2 transactions, so a
+  never-upgraded account cannot spend. Gas sponsorship does not cover a type-4
+  authorization transaction, so `ATTESTPAY_7702_SPONSOR_PK` pays for it once per account.
+- **Single call-type redemption.** Every caveat enforcer on a card chain is
+  `onlySingleCallTypeMode`. A payment has two executions, and encoding them as one
+  batch-mode entry reverted with `CaveatEnforcer:invalid-call-type` before any transfer
+  happened — so no card payment could ever have succeeded. Each execution is now its own
+  single-mode entry under the same delegation chain, still in one transaction.
 
 ---
 
