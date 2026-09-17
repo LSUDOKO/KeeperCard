@@ -113,8 +113,8 @@ export type SpendDeps = {
   /** fee-uniqueness jitter source (default random 0-999 atoms; tests pin it) */
   feeJitter?: (baseAtoms: bigint) => bigint;
   /** Called once whenever a charge reaches 'confirmed', from ANY path: the inline
-   * confirm below and the reconcile sweep both fire it. The Attestcoin integration
-   * hangs off this to enqueue cross-chain verification.
+   * confirm below and the reconcile sweep both fire it. The on-chain receipt service
+   * hangs off this to queue the payment's PaymentAnchor record.
    *
    * Must be cheap, synchronous and non-throwing — it is invoked on the payment's
    * critical path, and bookkeeping must never be able to fail a payment that has
@@ -778,7 +778,7 @@ async function runSpend(deps: SpendDeps, cardId: string, req: SpendRequest, plan
     let requestId: string;
     try {
       requestId = await trace
-        .getTracer("attestpay-engine")
+        .getTracer("keepercard-engine")
         .startActiveSpan(deps.relayer.kind === "keeperhub" ? "keeperhub_redeem" : "1shot_relayer_redeem", async (span) => {
           span.setAttribute("chain_id", chainId);
           span.setAttribute("card_id", cardId);

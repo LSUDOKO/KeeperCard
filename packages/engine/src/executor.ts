@@ -1,4 +1,4 @@
-// The execution-layer seam. AttestPay's authorization layer (caveats, cards, refusals)
+// The execution-layer seam. KeeperCard's authorization layer (caveats, cards, refusals)
 // builds a leaf-first permission context; an Executor gets it on-chain.
 //
 //   KeeperHubExecutor (default)  KeeperHub dry run -> reviewed plan -> exact execution,
@@ -17,7 +17,7 @@ import type { Wire7702Auth } from "./types";
 export type ExecutorKind = "keeperhub" | "1shot";
 
 /** Why a redemption is being sent: selects the KeeperHub workflow that executes it. */
-export type ExecutionPurpose = "pay" | "credit" | "settle" | "x402" | "admin";
+export type ExecutionPurpose = "pay" | "settle" | "x402" | "admin";
 
 export type SendOptions = {
   purpose?: ExecutionPurpose;

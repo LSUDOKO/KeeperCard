@@ -1,4 +1,4 @@
-// KeeperHubExecutor: the execution layer under AttestPay's delegations.
+// KeeperHubExecutor: the execution layer under KeeperCard's delegations.
 //
 // estimate()  = KeeperHub dry run. The redemption is encoded ONCE, simulated with
 //               `simulate: true` from the org's Turnkey wallet (the delegate every leaf
@@ -199,7 +199,7 @@ export class KeeperHubExecutor implements Executor {
           requiredPaymentAmount: null,
           context: null,
           error:
-            "smart_account_not_upgraded: this wallet has no EIP-7702 code yet and KeeperHub submits ordinary transactions; set ATTESTPAY_7702_SPONSOR_PK to let AttestPay submit the one-time upgrade",
+            "smart_account_not_upgraded: this wallet has no EIP-7702 code yet and KeeperHub submits ordinary transactions; set ATTESTPAY_7702_SPONSOR_PK to let KeeperCard submit the one-time upgrade",
           raw: null,
         };
       }

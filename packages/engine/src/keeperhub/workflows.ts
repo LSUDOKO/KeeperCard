@@ -38,7 +38,7 @@ export const PAYMENT_ANCHOR_ABI = [
 
 /**
  * The event `anchorPayment` emits. Kept beside the function ABI because the audit trail
- * reads these back through KeeperHub to check AttestPay's own records against the chain.
+ * reads these back through KeeperHub to check KeeperCard's own records against the chain.
  */
 export const PAYMENT_ANCHOR_EVENT_ABI = [
   {
