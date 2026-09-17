@@ -1,4 +1,4 @@
-# Render blueprint for the AttestPay API server.
+# Render blueprint for the KeeperCard API server.
 #
 # Docker, not a native runtime: the server uses bun:sqlite and Bun.serve.
 services:
@@ -38,20 +38,22 @@ services:
       # --- KeeperHub: the execution layer -------------------------------------
       # Without KEEPERHUB_API_KEY the server FAILS LOUDLY on every payment rather than
       # silently no-op'ing; ATTESTPAY_EXECUTOR=1shot is the rollback lane.
-      # Workflow ids come from `bun run --cwd packages/server keeperhub:provision`,
-      # which matches by name, so they stay stable across re-runs.
-      - key: KEEPERHUB_WORKFLOW_PAY
-        value: o6iijkcr7tj83nj8ufbx6
-      - key: KEEPERHUB_WORKFLOW_ANCHOR
-        value: 625tzb9kz8wfg3okjjlch
-      - key: KEEPERHUB_WORKFLOW_CREDIT
-        value: b8e0j3ghqajod6ow0hau5
+      # Workflow ids are not set here: the server resolves every workflow BY NAME at boot
+      # (created by `bun run --cwd packages/server keeperhub:provision`, which is
+      # idempotent). KEEPERHUB_WORKFLOW_<KEY> exists only as an optional pin.
       - key: KEEPERHUB_WALLET_ADDRESS
         value: "0x4F719186a5545B8dB9a8e3e2F31eDdfc55BaD441"
       # Refuse to execute a payment that was not dry-run first. This is the whole point;
       # leave it on.
       - key: KEEPERHUB_DRY_RUN_REQUIRED
         value: "1"
+      # On-chain receipts: every confirmed payment gets a PaymentAnchor.anchorPayment
+      # record, written by KeeperHub on the same chain the payment settled on (Base Sepolia).
+      - key: KEEPERHUB_RECEIPT_ANCHOR_ADDRESS
+        value: "0x56733223c688cce7fc65826b692b3f8521e4ab3e"
+      # The dry run refuses a payment when Chainlink USDC/USD reads below this floor.
+      - key: KEEPERHUB_DEPEG_FLOOR
+        value: "0.98"
 
       # Secrets: set in the Render dashboard, never committed.
       - key: KEEPERHUB_API_KEY
@@ -60,38 +62,16 @@ services:
         sync: false
       - key: ATTESTPAY_ADMIN_TOKEN
         sync: false
-      - key: ATTESTPAY_ATTESTCOIN_PRIVATE_KEY
+      # Pays for the one-time EIP-7702 upgrade of a fresh account; needs a little native
+      # gas on the settlement chain.
+      - key: ATTESTPAY_7702_SPONSOR_PK
         sync: false
       - key: ATTESTPAY_PRIVY_APP_ID
         sync: false
-      # Attestcoin: deployed 2026-09-12, see docs/attestcoin-integration.md
-      - key: ATTESTPAY_PAYMENT_ANCHOR_ADDRESS
-        value: "0x881c55745372DfCB7dEC9B13F499b167164e2121"
-      - key: ATTESTPAY_ASC_ADDRESS
-        value: "0x881c55745372DfCB7dEC9B13F499b167164e2121"
-      - key: ATTESTPAY_ATTESTCOIN_CHAIN_KEY
-        value: "1"
-      - key: ATTESTPAY_SEPOLIA_RPC
-        value: https://ethereum-sepolia-rpc.publicnode.com
-      - key: ATTESTPAY_CREDITCOIN_HTTP_RPC
-        value: https://rpc.cc3-testnet.creditcoin.network
-      - key: ATTESTPAY_PROVER_API_URL
-        value: https://prover.cc3-testnet.creditcoin.network
-      # Credit lines, disputes, guarantees, passport: deployed 2026-09-12 (§16 of the doc)
-      - key: ATTESTPAY_FACT_ANCHOR_ADDRESS
-        value: "0xE984375956027C4989C6A806eBb2A1223607aefe"
-      - key: ATTESTPAY_CREDIT_LINE_ADDRESS
-        value: "0xe984375956027c4989c6a806ebb2a1223607aefe"
-      - key: ATTESTPAY_LEDGER_ADDRESS
-        value: "0x56733223c688cce7fc65826b692b3f8521e4ab3e"
-      - key: ATTESTPAY_GUARANTEE_ADDRESS
-        value: "0x3543bfcb460ab40acd3ba21c486eea285ce07f1b"
-      - key: ATTESTPAY_PASSPORT_ADDRESS
-        value: "0xfd1dc807ad1714c4c80a6c2145be200f61265b57"
 
 # NOTE ON PERSISTENCE
 # The free plan has no persistent disk, so /data resets on every deploy and on the
-# instance sleeping. That loses cards, delegations and the proof queue. For anything
+# instance sleeping. That loses cards, delegations and the payment history. For anything
 # beyond a demo, attach a disk (paid plan):
 #
 #   disk:
