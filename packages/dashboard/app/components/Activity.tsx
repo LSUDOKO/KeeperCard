@@ -15,7 +15,9 @@ export const chargeOk = (ch: Charge) => OK_STATUSES.has(ch.status);
 
 export function railLabel(kind: string): string {
   if (kind.includes("fiat") || kind.includes("visa") || kind.includes("stripe")) return "Fiat";
-  if (kind.includes("x402") || kind.includes("pay") || kind.includes("transfer")) return "x402";
+  if (kind.includes("x402")) return "x402";
+  // a direct card payment is a USDC transfer, not an x402 purchase
+  if (kind.includes("pay") || kind.includes("transfer")) return "USDC";
   return kind;
 }
 
