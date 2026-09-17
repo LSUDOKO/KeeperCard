@@ -20,10 +20,16 @@ import type { Bootstrap7702 } from "./executor";
 
 export function makeSponsor7702Bootstrap(
   sponsorPk: Hex,
-  opts: { codeCheck?: (address: Address, chainId: ChainId) => Promise<boolean>; onSubmitted?: (txHash: Hex, account: Address) => void } = {},
+  opts: {
+    codeCheck?: (address: Address, chainId: ChainId) => Promise<boolean>;
+    onSubmitted?: (txHash: Hex, account: Address) => void;
+    /** test seam for the post-upgrade code-propagation retries */
+    sleep?: (ms: number) => Promise<void>;
+  } = {},
 ): Bootstrap7702 {
   const account = privateKeyToAccount(sponsorPk);
   const codeCheck = opts.codeCheck ?? has7702Code;
+  const sleep = opts.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
   return async (authorizationList: Wire7702Auth[], chainId: ChainId): Promise<Hex> => {
     const auth = authorizationList[0];
     if (!auth) throw new EngineError("bootstrap", "empty authorization list");
@@ -55,9 +61,21 @@ export function makeSponsor7702Bootstrap(
     }
     opts.onSubmitted?.(hash, authority);
     const receipt = await publicClient(chainId).waitForTransactionReceipt({ hash, timeout: 90_000 });
-    if (receipt.status !== "success" || !(await codeCheck(authority, chainId))) {
-      throw new EngineError("bootstrap", `7702 upgrade ${hash} did not install account code`);
+    if (receipt.status !== "success") {
+      throw new EngineError("bootstrap", `7702 upgrade ${hash} reverted on chain ${chainId}`);
     }
-    return hash;
+    // A mined receipt does not mean every RPC node serves the new code yet: eth_getCode
+    // can still answer from a slightly stale view, and a load-balanced endpoint may route
+    // the read to a different node than the one that accepted the transaction. Failing
+    // here would reject a payment whose upgrade actually landed, so give the read a few
+    // short retries before calling it a failure.
+    for (let attempt = 0; attempt < 5; attempt++) {
+      if (await codeCheck(authority, chainId)) return hash;
+      await sleep(400 * (attempt + 1));
+    }
+    throw new EngineError(
+      "bootstrap",
+      `7702 upgrade ${hash} was mined successfully but ${authority} still reports no account code; the RPC may be lagging — retry the payment`,
+    );
   };
 }
