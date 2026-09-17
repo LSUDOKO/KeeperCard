@@ -1,5 +1,5 @@
 // The KeeperHub MCP tools: the agent-facing half of "compose, review, dry run, then
-// execute exactly that". AttestPay decides what the card may spend; KeeperHub moves it.
+// execute exactly that". KeeperCard decides what the card may spend; KeeperHub moves it.
 //
 //   keeperhub_dry_run           compose a payment and dry-run it through KeeperHub from the
 //                               wallet that will execute it; returns a plan_id + the exact
@@ -7,7 +7,11 @@
 //                               the same signed bytes, or refuses.
 //   keeperhub_execution_status  where a payment is in KeeperHub: run status, verified tx,
 //                               per-node logs for workflow runs
-//   keeperhub_audit_trail       KeeperHub's record for this card merged with AttestPay's
+//   payment_receipt             the on-chain receipt KeeperHub wrote for a payment: both
+//                               transactions, each independently checkable
+//   treasury_status             the wallets and reference prices payments depend on, read
+//                               live through KeeperHub
+//   keeperhub_audit_trail       KeeperHub's record for this card merged with KeeperCard's
 //                               own charge ledger, newest first
 //
 // Offered only when this deployment executes through KeeperHub: an agent is never shown
@@ -16,6 +20,8 @@
 import { z } from "zod";
 import type { Address } from "viem";
 import {
+  CHAIN_ID,
+  CHAINS,
   RefusalError,
   atomsToUsdc,
   keeperhub,
@@ -26,7 +32,7 @@ import {
 } from "@attestpay/engine";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { AppDeps } from "../deps";
-import { explorerTx, presentExecution, presentPlan, presentRisk } from "../keeperhub/routes";
+import { explorerTx, presentExecution, presentPlan, presentReceipt, presentRisk } from "../keeperhub/routes";
 
 type Run = (toolName: string, cardId: string, fn: () => Promise<unknown>) => Promise<{
   content: Array<{ type: "text"; text: string }>;
@@ -171,6 +177,80 @@ export function registerKeeperHubTools(
   );
 
   // -----------------------------------------------------------------------
+  // payment_receipt
+  // -----------------------------------------------------------------------
+  if (kh.receipts) {
+    const receipts = kh.receipts;
+    server.registerTool(
+      "payment_receipt",
+      {
+        title: "On-chain receipt for a payment",
+        description:
+          "The on-chain receipt for a payment this card made. After a payment confirms, KeeperHub writes a PaymentAnchor record on the same chain: card, payer, merchant, amount and the payment's transaction hash, as a public append-only event. Returns both transactions with explorer links — the payment itself and the receipt that records it — so a counterparty can check the payment without trusting KeeperCard. With no charge_id, lists the receipts for this card's recent payments. `state` is anchored / anchoring / pending / failed / not_anchorable (an x402 purchase settled by the seller has no transaction of ours to anchor). A receipt is written in the background: `pending` right after a payment is normal, not an error.",
+        inputSchema: {
+          charge_id: z.string().max(128).optional().describe("a charge id from `card` or `pay`; omit to list recent receipts"),
+        },
+        annotations: { readOnlyHint: true, openWorldHint: false },
+      },
+      async (args: { charge_id?: string }) =>
+        run("payment_receipt", card.id, async () => {
+          const ids = new Set(sd.store.subtreeIds(card.id));
+          if (args.charge_id) {
+            const charge = sd.store.getCharge(args.charge_id);
+            if (!charge || !ids.has(charge.card_id)) throw new RefusalError("card_not_found", "no such charge on this card");
+            return { ...presentReceipt(receipts.view(charge.id)), amount: atomsToUsdc(charge.amount_atoms), memo: charge.memo, anchor_contract: kh.config!.receiptAnchorAddress };
+          }
+          const items = [...ids]
+            .flatMap((id) => sd.store.listCharges(id, 20))
+            .filter((ch) => ch.status === "confirmed")
+            .slice(0, 20)
+            .map((ch) => ({ ...presentReceipt(receipts.view(ch.id)), amount: atomsToUsdc(ch.amount_atoms), memo: ch.memo }));
+          return { anchor_contract: kh.config!.receiptAnchorAddress, receipts: items };
+        }),
+    );
+  }
+
+  // -----------------------------------------------------------------------
+  // treasury_status
+  // -----------------------------------------------------------------------
+  server.registerTool(
+    "treasury_status",
+    {
+      title: "Execution-layer health",
+      description:
+        "Whether a payment can land right now, read live through KeeperHub: the gas and USDC balance of the wallet that executes payments, and Chainlink's USDC/USD and ETH/USD reference prices. `usdc_depegged: true` means payments are being refused because USDC reads below the floor; `gas_low: true` means the executing wallet may fail KeeperHub's gas preflight. A null figure means that read failed — treat it as unknown, never as zero. Call this when a payment fails for a reason that is not about the card's own terms.",
+      inputSchema: {},
+      annotations: { readOnlyHint: true, openWorldHint: true },
+    },
+    async () =>
+      run("treasury_status", card.id, async () => {
+        const orgWallet = (kh.config!.walletAddress ?? (await deps.relayer.delegateAddress().catch(() => null))) as Address | null;
+        const t = await keeperhub.readTreasury({
+          client,
+          chainId: CHAIN_ID,
+          usdc: CHAINS[CHAIN_ID].usdc,
+          orgWallet,
+          depegFloor: kh.config!.depegFloor,
+        });
+        return {
+          chain: CHAINS[CHAIN_ID].name,
+          executing_wallet: t.org_wallet
+            ? {
+                address: t.org_wallet.address,
+                gas_eth: t.org_wallet.gas_wei === null ? null : (Number(t.org_wallet.gas_wei) / 1e18).toFixed(8),
+                usdc: t.org_wallet.usdc_atoms === null ? null : atomsToUsdc(BigInt(t.org_wallet.usdc_atoms)),
+                gas_low: t.org_wallet.gas_low,
+              }
+            : null,
+          usdc_usd: t.usdc_usd,
+          eth_usd: t.eth_usd,
+          usdc_depegged: t.usdc_depegged,
+          depeg_floor: t.depeg_floor,
+        };
+      }),
+  );
+
+  // -----------------------------------------------------------------------
   // keeperhub_audit_trail
   // -----------------------------------------------------------------------
   server.registerTool(
@@ -178,7 +258,7 @@ export function registerKeeperHubTools(
     {
       title: "KeeperHub audit trail",
       description:
-        "This card's execution history: every KeeperHub dry run, workflow run and anchor for the card (and its sub-cards), merged with AttestPay's own charge ledger. Each charge shows the policy decision (AttestPay) next to the execution that moved it (KeeperHub), so the two failure domains stay distinguishable.",
+        "This card's execution history: every KeeperHub dry run, workflow run and anchor for the card (and its sub-cards), merged with KeeperCard's own charge ledger. Each charge shows the policy decision (KeeperCard) next to the execution that moved it (KeeperHub), so the two failure domains stay distinguishable.",
       inputSchema: { limit: z.number().int().min(1).max(100).optional() },
       annotations: { readOnlyHint: true },
     },

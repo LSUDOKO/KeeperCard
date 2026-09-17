@@ -9,7 +9,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { trace, SpanStatusCode } from "@opentelemetry/api";
 import { z } from "zod";
 
-const mcpTracer = trace.getTracer("attestpay-server");
+const mcpTracer = trace.getTracer("keepercard-server");
 import { encodeFunctionData, parseAbi, toFunctionSelector, type Address, type Hex } from "viem";
 import {
   decodePaymentRequiredHeader,
@@ -38,13 +38,11 @@ import {
   type X402Requirement,
 } from "@attestpay/engine";
 import type { AppDeps } from "../deps";
-import { registerTermsInBackground, revokeTermsInBackground, spendDeps, spendKey } from "../deps";
-import { registerAttestcoinTools } from "./attestcoin-tools";
-import { registerCreditTools } from "./credit-tools";
+import { spendDeps, spendKey } from "../deps";
 import { registerKeeperHubTools } from "./keeperhub-tools";
 import { recentFiatDecision } from "../stripe/decisions";
 
-const SERVER_INFO = { name: "attestpay", version: "0.18.0" };  // Surfaced to clients at initialize. Claude Code's tool search (default-on since mid-2026)
+const SERVER_INFO = { name: "keepercard", version: "0.18.0" };  // Surfaced to clients at initialize. Claude Code's tool search (default-on since mid-2026)
   // keys discovery on this text and truncates at 2KB: keep it a compact routing guide.
   const INSTRUCTIONS = [
     "remit is the agent's spending card: a scoped, revocable spending authority granted by the card owner. The connection itself is the card; it holds no funds of its own and every action is checked against the card's terms (per-payment cap, period budget, expiry, allowlists).",
@@ -456,7 +454,7 @@ export function buildMcpServer(deps: AppDeps, card: CardRow): McpServer {
         run("shop_products", card.id, async () => {
           const items = await stripe.fetchProductsAndPrices();
           return {
-            merchant: "attestpay marketplace",
+            merchant: "keepercard marketplace",
             products: items.map((p) => ({
               id: p.id,
               name: p.name,
@@ -495,7 +493,7 @@ export function buildMcpServer(deps: AppDeps, card: CardRow): McpServer {
           const auth = await stripe.createTestAuthorization({
             cardId: ic,
             amountCents: product.priceCents,
-            merchantName: "attestpay marketplace",
+            merchantName: "keepercard marketplace",
           });
           const decision = recentFiatDecision(auth.id);
           const state = cardState(sd.store, card.id, now());
@@ -609,7 +607,6 @@ export function buildMcpServer(deps: AppDeps, card: CardRow): McpServer {
           // eager mint, fire-and-forget: the sub-card is a two-rail card from birth
           if (deps.stripe) void deps.stripe.ensureCardForRemitCard(issued.cardId).catch(() => {});
           // register the sub-card's (narrower) terms cross-chain too, same shape
-          registerTermsInBackground(deps, issued.cardId);
           return { card_id: issued.cardId, card_url: cardUrl(issued.secret), terms: issued.terms };
         }),
     );
@@ -629,20 +626,10 @@ export function buildMcpServer(deps: AppDeps, card: CardRow): McpServer {
         run("revoke_subcard", card.id, async () => {
           agentRevokeSubcard(sd.store, card.id, args.card_id);
           // mirror the kill into the Creditcoin terms registry, subtree-wide
-          for (const id of sd.store.subtreeIds(args.card_id)) revokeTermsInBackground(deps, id);
           return { status: "revoked", card_id: args.card_id };
         }),
     );
   }
-
-  // ---- Attestcoin cross-chain tools (only when the integration is configured) ----
-  // Registers verify_payment, payment_receipt, credit_score and cross_chain_status.
-  // A card on a deployment without Attestcoin never sees them, keeping the tool list
-  // an honest description of what this card can actually do.
-  registerAttestcoinTools(server, deps, card, run);
-  // Credit lines, disputes and the passport ride the same gate: offered only when
-  // their contracts are configured, so the tool list stays an honest capability list.
-  registerCreditTools(server, deps, card, run);
 
   // KeeperHub: dry run -> reviewed plan -> exact execution, plus execution status and
   // the merged audit trail. Only when this deployment executes through KeeperHub.
