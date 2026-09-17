@@ -55,11 +55,26 @@ export function encodeRedemption(transactions: RelayerTransaction[]): EncodedRed
   const executionCallDatas: Hex[] = [];
   let executionCount = 0;
   for (const t of transactions) {
-    permissionContexts.push(encodeDelegations(t.permissionContext as never) as Hex);
-    const { mode, data } = executionCalldata(t.executions);
-    modes.push(mode);
-    executionCallDatas.push(data);
-    executionCount += t.executions.length;
+    // One redemption ENTRY per execution, always in single call-type mode.
+    //
+    // Every caveat enforcer on a card's leaf and root chain (ERC20TransferAmount,
+    // ERC20PeriodTransfer, AllowedTargets, AllowedMethods, ValueLte, …) declares
+    // `onlySingleCallTypeMode`, so the DelegationManager reverts a batch-mode entry with
+    // CaveatEnforcer:invalid-call-type before any transfer happens. A pay carries two
+    // executions — the merchant transfer and the gas-fee leg — so encoding it as one
+    // batch entry made every card payment fail on-chain.
+    //
+    // redeemDelegations takes three parallel arrays, so the same permission context is
+    // simply repeated per execution. All entries still settle in ONE transaction, which
+    // is what keeps a payment and its fee atomic.
+    const context = encodeDelegations(t.permissionContext as never) as Hex;
+    for (const execution of t.executions) {
+      const { mode, data } = executionCalldata([execution]);
+      permissionContexts.push(context);
+      modes.push(mode);
+      executionCallDatas.push(data);
+      executionCount += 1;
+    }
   }
   const args: [Hex[], Hex[], Hex[]] = [permissionContexts, modes, executionCallDatas];
   const data = encodeFunctionData({ abi: REDEEM_DELEGATIONS_ABI, functionName: "redeemDelegations", args });
