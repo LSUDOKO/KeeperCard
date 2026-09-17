@@ -1,33 +1,33 @@
 import { logs } from "@opentelemetry/api-logs";
 import { metrics } from "@opentelemetry/api";
 
-const logger = logs.getLogger("attestpay-engine");
-const meter = metrics.getMeter("attestpay-engine");
+const logger = logs.getLogger("keepercard-engine");
+const meter = metrics.getMeter("keepercard-engine");
 
 // --- Metrics (visible in SigNoz dashboards) ---
 
 /** Total USDC spent across all confirmed redemptions and fiat settlements */
-export const usdcSpentTotal = meter.createCounter("attestpay.usdc_spent_total", {
+export const usdcSpentTotal = meter.createCounter("keepercard.usdc_spent_total", {
   description: "Total USDC spent across all confirmed redemptions and fiat settlements",
 });
 
 /** Number of currently active (issued minus revoked) cards */
-export const activeCards = meter.createUpDownCounter("attestpay.active_cards", {
+export const activeCards = meter.createUpDownCounter("keepercard.active_cards", {
   description: "Number of currently active (issued minus revoked) cards",
 });
 
 /** Total cards issued (root + sub-cards) */
-export const cardsIssuedTotal = meter.createCounter("attestpay.cards_issued_total", {
+export const cardsIssuedTotal = meter.createCounter("keepercard.cards_issued_total", {
   description: "Total cards issued across all users (root + sub-cards)",
 });
 
 /** Total charges processed (confirmed + pending + failed) */
-export const chargesTotal = meter.createCounter("attestpay.charges_total", {
+export const chargesTotal = meter.createCounter("keepercard.charges_total", {
   description: "Total charges processed across all cards",
 });
 
 /** Total API errors (refusals + exceptions) */
-export const errorsTotal = meter.createCounter("attestpay.errors_total", {
+export const errorsTotal = meter.createCounter("keepercard.errors_total", {
   description: "Total API-level errors and refusals",
 });
 

@@ -1,9 +1,9 @@
-// x402 erc7710: the bridge between a AttestPay card and the x402 payment handshake.
+// x402 erc7710: the bridge between a KeeperCard card and the x402 payment handshake.
 // Spec: x402 PR #732 (merged 2026-03-13) defines assetTransferMethod "erc7710" inside
 // exact_evm with payload {delegationManager, permissionContext: bytes, delegator}
 // — byte-identical to SAK's experimental x402DelegationProviderPaymentPayload.
 // NO shipped facilitator settles it (verified Jun 6: 1Shot's own /supported = {"kinds":[]});
-// AttestPay's facilitator (P3) is the first. Settlement rail = the 1Shot relayer.
+// KeeperCard's facilitator (P3) is the first. Settlement rail = the 1Shot relayer.
 //
 // PAYER side (paid_fetch / pay({x402})): carve a leaf redeemable by the 1Shot target,
 // encode [leaf, ...chain] -> payload. A pending charge RESERVES budget at carve time

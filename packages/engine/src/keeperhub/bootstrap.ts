@@ -2,7 +2,7 @@
 //
 // The 1Shot relayer accepted an authorizationList and upgraded the user's EOA in the
 // same transaction as the first redemption. KeeperHub's write paths submit ordinary
-// (type-2) transactions, so the upgrade is split out: AttestPay submits the user's own
+// (type-2) transactions, so the upgrade is split out: KeeperCard submits the user's own
 // signed authorization in a zero-value type-4 transaction from a small sponsor key,
 // waits for the code to land, and the redemption itself then goes through KeeperHub
 // like every other payment. No value moves in the bootstrap transaction.

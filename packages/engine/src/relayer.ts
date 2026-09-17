@@ -11,7 +11,7 @@ import { EngineError } from "./errors";
 import type { Executor, SendOptions } from "./executor";
 import type { Wire7702Auth, WireDelegation, WireExecution } from "./types";
 
-const tracer = trace.getTracer("attestpay-engine");
+const tracer = trace.getTracer("keepercard-engine");
 
 export type RelayerTransaction = {
   permissionContext: WireDelegation[]; // LEAF-FIRST; [0].delegate MUST == targetAddress

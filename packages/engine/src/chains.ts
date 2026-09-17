@@ -1,4 +1,4 @@
-// Chain + relayer constants for AttestPay. Base mainnet (8453) is THE chain (locked);
+// Chain + relayer constants for KeeperCard. Base mainnet (8453) is THE chain (locked);
 // Base Sepolia kept for dev-only experiments, never the demo.
 // All values empirically verified Jun 5-6 2026 (probes/RESULTS.md).
 

@@ -20,5 +20,4 @@ export * from "./issuance";
 export * from "./ops";
 export * from "./x402";
 export * from "./telemetry";
-export * as attestcoin from "./attestcoin";
 export * as keeperhub from "./keeperhub";

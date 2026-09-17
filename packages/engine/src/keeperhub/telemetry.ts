@@ -1,20 +1,20 @@
-// KeeperHub spans, metrics and logs. Extends the trace-per-hop philosophy of the
-// Attestcoin pipeline to the execution layer:
+// KeeperHub spans, metrics and logs. One span per hop of the execution layer, so a
+// payment can be followed from the dry run to the verified receipt:
 //
 //   keeperhub.dry_run          simulate the exact redemption bytes from the org wallet
 //   keeperhub.execute          broadcast through a workflow or direct execution
 //   keeperhub.execution_poll   one status read against KeeperHub's verified receipts
 //
 // Two failure domains stay distinguishable in the audit log: `refusal_reason`
-// (AttestPay policy said no) vs `keeperhub_execution_failed` (policy said yes, the
+// (KeeperCard policy said no) vs `keeperhub_execution_failed` (policy said yes, the
 // execution layer could not land it).
 
 import { metrics, trace, type Span } from "@opentelemetry/api";
 import { logs } from "@opentelemetry/api-logs";
 
-const tracer = trace.getTracer("attestpay-keeperhub");
-const meter = metrics.getMeter("attestpay-keeperhub");
-const logger = logs.getLogger("attestpay-keeperhub");
+const tracer = trace.getTracer("keepercard-keeperhub");
+const meter = metrics.getMeter("keepercard-keeperhub");
+const logger = logs.getLogger("keepercard-keeperhub");
 
 export const keeperhubExecutionsTotal = meter.createCounter("keeperhub.executions_total", {
   description: "KeeperHub executions started, by workflow and surface",

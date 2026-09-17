@@ -1,6 +1,6 @@
-// Checking AttestPay's own anchor records against the chain that holds them.
+// Checking KeeperCard's own anchor records against the chain that holds them.
 //
-// Every other surface in this repo reports what AttestPay believes: the local
+// Every other surface in this repo reports what KeeperCard believes: the local
 // keeperhub_executions table says an anchor landed, and the dashboard repeats it. That
 // belief comes from KeeperHub's reply, which is good evidence, but it is still a record
 // of what a service said rather than of what the chain contains.
@@ -12,7 +12,7 @@
 //   matched   — a local row and an on-chain event for the same transaction
 //   unwitnessed — a local row claiming success with no event in the scanned window.
 //                 NOT proof of a lie: the window may simply not reach far enough back.
-//   unrecorded  — an event on-chain that AttestPay has no row for, which is the more
+//   unrecorded  — an event on-chain that KeeperCard has no row for, which is the more
 //                 interesting direction (a run whose result never made it home).
 //
 // The window is finite, so "unwitnessed" is reported with the range that was scanned

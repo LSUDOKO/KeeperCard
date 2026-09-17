@@ -1,6 +1,6 @@
 // DelegationManager.redeemDelegations calldata for KeeperHub.
 //
-// The 1Shot relayer encoded redemptions server-side; with KeeperHub, AttestPay encodes
+// The 1Shot relayer encoded redemptions server-side; with KeeperHub, KeeperCard encodes
 // them itself so the bytes that are dry-run, reviewed and executed are provably the
 // same bytes. The digest (keccak256 of the calldata) is the identity of a plan.
 

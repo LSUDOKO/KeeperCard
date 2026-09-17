@@ -1,4 +1,4 @@
-// Local record of everything AttestPay asked KeeperHub to do.
+// Local record of everything KeeperCard asked KeeperHub to do.
 //
 //   keeperhub_plans       reviewed dry runs: the exact signed redemption an agent saw,
 //                         executable once, until it expires
@@ -6,7 +6,7 @@
 //                         ran for us, keyed by KeeperHub's executionId, so the audit
 //                         trail survives even when KeeperHub's own history pages past it
 //
-// Lives on the same SQLite handle as the core Store, like the Attestcoin tables.
+// Lives on the same SQLite handle as the core Store.
 
 import type { Database } from "bun:sqlite";
 import type { Address, Hex } from "viem";
