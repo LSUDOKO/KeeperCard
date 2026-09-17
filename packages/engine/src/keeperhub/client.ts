@@ -370,7 +370,7 @@ export class KeeperHubClient {
     const headers: Record<string, string> = {
       authorization: `Bearer ${this.config.apiKey}`,
       accept: "application/json",
-      "user-agent": "keepercard-attestpay/1.0",
+      "user-agent": "keepercard/1.0",
     };
     if (opts.body !== undefined) headers["content-type"] = "application/json";
     if (opts.idempotencyKey) headers["idempotency-key"] = opts.idempotencyKey;
@@ -587,7 +587,7 @@ export class KeeperHubClient {
   /**
    * Decoded contract events, read through KeeperHub's own RPC fleet.
    *
-   * This is the audit trail's independent witness: the anchors AttestPay believes it
+   * This is the audit trail's independent witness: the anchors KeeperCard believes it
    * wrote, read back from the chain that actually holds them. A row present locally but
    * absent here is a claim the chain does not support — which is the discrepancy worth
    * surfacing, and the reason this exists rather than trusting the local table.
@@ -771,6 +771,11 @@ export class KeeperHubClient {
       body: patch,
     });
     return json as KeeperHubWorkflow;
+  }
+
+  /** Permanently removes a workflow. Irreversible: callers confirm ownership first. */
+  async deleteWorkflow(id: string): Promise<void> {
+    await this.request("delete_workflow", `/workflows/${encodeURIComponent(id)}`, { method: "DELETE" });
   }
 
   async validateWorkflow(id: string, deepCheck = false): Promise<Record<string, unknown>> {

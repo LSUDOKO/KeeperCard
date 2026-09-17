@@ -1,4 +1,4 @@
-// KeeperHub: AttestPay's execution layer. See docs/keeperhub/README.md.
+// KeeperHub: KeeperCard's execution layer. See docs/keeperhub/README.md.
 
 export * from "./config";
 export * from "./client";

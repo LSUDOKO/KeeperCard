@@ -293,6 +293,12 @@ export class Store {
     return rows.map((r) => this.rowToCard(r)!) ;
   }
 
+  /** Every card id, newest first. For background sweeps that span all users. */
+  listAllCardIds(limit = 500): string[] {
+    const rows = this.db.query(`SELECT id FROM cards ORDER BY created_at DESC LIMIT $n`).all({ $n: limit }) as Array<{ id: string }>;
+    return rows.map((r) => r.id);
+  }
+
   listChildren(parentCardId: string): CardRow[] {
     const rows = this.db
       .query(`SELECT * FROM cards WHERE parent_card_id = $p ORDER BY created_at`)
