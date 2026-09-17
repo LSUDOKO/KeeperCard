@@ -200,6 +200,7 @@ than taken from KeeperHub's own reply.
 
 | What | Chain | Transaction |
 |---|---|---|
+| **Card payment under an ERC-7710 delegation** — the full product path | Base Sepolia | [`0x2e52bc36…a88ca755`](https://sepolia.basescan.org/tx/0x2e52bc363c82874b3ac085c0623f6a1ff62b10f79140d16c217b7a88a88ca755) |
 | **USDC transfer** — real value moved | Base Sepolia | [`0x88a28cef…d945eb9`](https://sepolia.basescan.org/tx/0x88a28cef9cec59c8a7a298507ac2de19eac20e42b589dfb9734da9f15d945eb9) |
 | **`PaymentAnchor.anchorPayment`** — cross-chain proof, leg 1 | Ethereum Sepolia | [`0x3eafda4b…c694a2f8`](https://sepolia.etherscan.io/tx/0x3eafda4b16c341b20de24d6868a4646c54881ab4f86a68941c5b69c3c694a2f8) |
 
@@ -285,11 +286,9 @@ Stated plainly, because the brief asks what is unfinished:
   round trip. `stuck-charge-recovery` and `fiat-settlement-sweep` are schedule-plus-callback
   and nothing else, so on a free plan they cannot exist as KeeperHub workflows at all;
   KeeperCard keeps its own timers for those two and says so at boot.
-- **The card-redemption workflow has not yet executed end to end on-chain.** It is
-  provisioned and validated, and the redemption path is covered by tests, but a live run
-  needs a card-owner wallet with USDC *and* a one-time EIP-7702 upgrade, which cannot be
-  gas-sponsored. The USDC transfer above proves KeeperHub moves real value on Base Sepolia;
-  it does not prove the full delegation-redemption path in production.
+- **Free-tier persistence.** Render's free plan has no disk, so `/data` resets on every
+  deploy and whenever the instance sleeps — which loses cards, delegations and the proof
+  queue. Attach a disk for anything beyond a demo (`render.yaml` has the stanza).
 
 ### Health check
 
