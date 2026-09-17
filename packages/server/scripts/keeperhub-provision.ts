@@ -160,34 +160,6 @@ for (const key of keeperhub.KEEPERHUB_WORKFLOW_KEYS) {
   console.log(`✓ ${def.name}: ${found ? "updated" : "created"} ${id} · ${keeperhub.KEEPERHUB_WORKFLOW_TRIGGERS[key]}${autonomous ? " (runs on its own)" : ""}${validation}`);
 }
 
-// 4. retire workflows an earlier version of this script created under names that no
-// longer exist. Only ones carrying our marker are touched — never a workflow a human made.
-const RETIRED: Record<string, string> = {
-  "attestcoin-cross-chain-proof": "retired-sepolia-receipt-anchor",
-  "credit-line-draw-repay": "retired-credit-redemption",
-};
-for (const w of existing) {
-  const retiredName = RETIRED[w.name];
-  if (!retiredName || !(w.description ?? "").startsWith("[keepercard]")) continue;
-  try {
-    await client.deleteWorkflow(w.id);
-    console.log(`- ${w.name}: retired (${w.id})`);
-  } catch {
-    // KeeperHub keeps a workflow that has execution history. Its runs are part of the
-    // audit trail and should survive, so it is renamed and switched off instead.
-    try {
-      await client.updateWorkflow(w.id, {
-        name: retiredName,
-        description: "[keepercard] Retired. Superseded by payment-receipt-anchor; kept because KeeperHub preserves workflows that have execution history.",
-        enabled: false,
-      });
-      console.log(`- ${w.name}: has run history, so renamed to ${retiredName} and disabled (${w.id})`);
-    } catch (e) {
-      console.log(`! ${w.name}: could not retire (${e instanceof Error ? e.message : String(e)})`);
-    }
-  }
-}
-
 console.log("\nNo workflow env vars are needed: the server resolves these workflows by name at boot.");
 console.log("Optional, to pin a specific workflow instead:\n");
 for (const key of keeperhub.KEEPERHUB_WORKFLOW_KEYS) if (ids[key]) console.log(`  ${keeperhub.workflowEnvVar(key)}=${ids[key]}`);
