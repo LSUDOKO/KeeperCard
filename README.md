@@ -87,8 +87,8 @@ creates or updates by name, so ids never change).
 | `payment-receipt-anchor` | Manual | Payment Confirmed → Anchor Payment | live · executed on-chain |
 | `receipt-event-watcher` | **Event** | `PaymentAnchored` → Recent Receipts | live · **fired by the chain** |
 | `treasury-monitor` | **Schedule** | Org gas → Org USDC → Sponsor gas → Gas Low? | live · **fired by KeeperHub's cron** |
-| `market-guard` | **Schedule** | USDC/USD → ETH/USD → Below Peg? | live · executed |
-| `fee-income-watcher` | **Block** | Every N blocks → Fee Balance | live · executed |
+| `market-guard` | **Schedule** | USDC/USD → ETH/USD → Below Peg? | live · executed (hourly cron) |
+| `fee-income-watcher` | **Block** | Every N blocks → Fee Balance | live · **fired by the chain's block clock** |
 | `x402-settlement` | Manual | Redemption Request → Redeem Delegations | live · not yet exercised on-chain |
 | `fiat-settlement` | Manual | Redemption Request → Redeem Delegations | live · not yet exercised on-chain |
 | `stuck-charge-recovery` | Schedule | schedule → callback | needs KeeperHub Pro |

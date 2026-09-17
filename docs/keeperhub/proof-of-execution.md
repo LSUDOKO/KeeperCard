@@ -22,7 +22,7 @@ Workflows that ran without KeeperCard starting them:
 | `receipt-event-watcher` | Event | 2 successful runs, one per `PaymentAnchored` event in #3 and #5 — started by the chain |
 | `treasury-monitor` | Schedule | successful runs at KeeperHub's own 10-minute cron, reading real balances |
 | `market-guard` | Schedule | read Chainlink USDC/USD `0.99987` and ETH/USD, evaluated the depeg Condition (`false`) |
-| `fee-income-watcher` | Block | read 18.04 USDC of collected fees from the org wallet |
+| `fee-income-watcher` | Block | fired on its 900-block interval and read 18.04 USDC of collected fees from the org wallet |
 
 ---
 
