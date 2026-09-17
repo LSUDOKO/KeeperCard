@@ -3,11 +3,18 @@
 The submission asks for a link to a transaction executed through KeeperHub. These are
 those transactions, plus the checks that make them evidence rather than claims.
 
-Everything here is Base Sepolia (84532). Every check was made against a public RPC
+Everything here is Base Sepolia (84532). Rows P1–P4 ran on the production deployment;
+the rest on a local server against the live KeeperHub API. Re-check all of them with
+`bun run --cwd packages/server verify:onchain`, which reads a public RPC and nothing else.
+ Every check was made against a public RPC
 (`https://sepolia.base.org`), not taken from KeeperHub's reply.
 
 | # | What | KeeperHub workflow | Transaction |
 |---|---|---|---|
+| P1 | **Production** card payment, 0.02 USDC, paid by an agent over MCP | `card-payment-redemption` | [`0xcdc5ef72…17b75ed6`](https://sepolia.basescan.org/tx/0xcdc5ef7216fe80fea61f82d55da7f53208c2c98206ad0213f0269a2c17b75ed6) |
+| P2 | ↳ on-chain receipt for P1, written unprompted ~40s later | `payment-receipt-anchor` | [`0x93a3f701…457615da`](https://sepolia.basescan.org/tx/0x93a3f70123e172a9e9f3f97ca8a1ac80654edfb961cf1e8a6bb133a6457615da) |
+| P3 | **Production** card payment, 0.05 USDC | `card-payment-redemption` | [`0x28804b53…10ca40f7`](https://sepolia.basescan.org/tx/0x28804b5315f8ec86446bfdd62f7a30d76c157b13e33cb9ffedad8c0a10ca40f7) |
+| P4 | ↳ on-chain receipt for P3 | `payment-receipt-anchor` | [`0x95c4f1f9…d6451d3d`](https://sepolia.basescan.org/tx/0x95c4f1f940d227a307e6e853ce6f830e5c1b50e8a1fc9bbc9349c38cd6451d3d) |
 | 1 | Card payment, 0.01 USDC | `card-payment-redemption` · run `7pzmtv7kr2ar9kpwcua08` | [`0x54b1651c…f547b406`](https://sepolia.basescan.org/tx/0x54b1651ca19d7c557c028ef9d22949b609df4cff3dbdb3c4f3857e26f547b406) |
 | 2 | Card payment, 0.02 USDC | `card-payment-redemption` | [`0x3c20c3d1…fe4d986b`](https://sepolia.basescan.org/tx/0x3c20c3d19a49a806bb95ecc9d3874cd73084368c3c22c54616d24205fe4d986b) |
 | 3 | ↳ on-chain receipt for #2 | `payment-receipt-anchor` | [`0xaee6c910…bd55531e`](https://sepolia.basescan.org/tx/0xaee6c91062c90a332881ebf35780c2470a72e85ffd8bda78239d3465bd55531e) |
@@ -19,7 +26,7 @@ Workflows that ran without KeeperCard starting them:
 
 | Workflow | Trigger | Evidence |
 |---|---|---|
-| `receipt-event-watcher` | Event | 2 successful runs, one per `PaymentAnchored` event in #3 and #5 — started by the chain |
+| `receipt-event-watcher` | Event | 4 successful runs, one per `PaymentAnchored` event (#3, #5, P2, P4) — started by the chain |
 | `treasury-monitor` | Schedule | successful runs at KeeperHub's own 10-minute cron, reading real balances |
 | `market-guard` | Schedule | read Chainlink USDC/USD `0.99987` and ETH/USD, evaluated the depeg Condition (`false`) |
 | `fee-income-watcher` | Block | fired on its 900-block interval and read 18.04 USDC of collected fees from the org wallet |
