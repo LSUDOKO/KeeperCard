@@ -1,15 +1,15 @@
 # SigNoz Foundry casting.yaml
-# Deploy local SigNoz with Docker Compose alongside AttestPay.
+# Deploy local SigNoz with Docker Compose alongside KeeperCard.
 # Run: foundryctl cast -f casting.yaml
 #
-# After deployment, AttestPay's OTel exporter sends to http://localhost:4318
+# After deployment, KeeperCard's OTel exporter sends to http://localhost:4318
 # (set OTEL_EXPORTER_OTLP_ENDPOINT or let it default).
 # The SigNoz UI is at http://localhost:3301
 
 mode: docker
 flavor: compose
 
-# SigNoz self-hosted composition for observability of the AttestPay
+# SigNoz self-hosted composition for observability of the KeeperCard
 # Agentic Finance platform. Includes the OTel Collector, ClickHouse,
 # Query Service (backend), Frontend, and the MCP server for AI-agent
 # observability workflows.
@@ -25,13 +25,13 @@ ingress:
     port: 3301
     protocol: http
 
-  # OTLP HTTP receiver for AttestPay telemetry
+  # OTLP HTTP receiver for KeeperCard telemetry
   - name: otlp-http
     port: 4318
     protocol: http
     description: >
       OTLP HTTP endpoint for traces, metrics, and logs.
-      AttestPay's NodeSDK exports to this by default.
+      KeeperCard's NodeSDK exports to this by default.
 
   # OTLP gRPC receiver (alternative transport)
   - name: otlp-grpc
@@ -93,7 +93,7 @@ services:
       SIGNOZ_MCP_AUTH_TOKEN: ${SIGNOZ_MCP_AUTH_TOKEN:-attestpay_mcp_dev}
     # The MCP server exposes signoz_* tools for querying traces,
     # logs, metrics, creating dashboards, and setting alerts —
-    # directly usable by AI agents debugging AttestPay.
+    # directly usable by AI agents debugging KeeperCard.
 
 volumes:
   clickhouse-data:

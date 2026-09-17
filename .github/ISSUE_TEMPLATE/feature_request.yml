@@ -20,8 +20,8 @@ body:
     attributes:
       label: Effect on what the project claims
       description: |
-        Does this change what a proof establishes, what "verified" means, or how credit is
-        graded? If so, say how. Changes that widen a claim need to be worth it.
+        Does this change what a card can spend, what the dry run checks, or what an
+        on-chain receipt establishes? If so, say how. Changes that widen a claim need to be worth it.
   - type: textarea
     id: alternatives
     attributes:

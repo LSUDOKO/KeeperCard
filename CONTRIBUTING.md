@@ -1,17 +1,18 @@
-# Contributing to AttestPay
+# Contributing to KeeperCard
 
 ## Getting set up
 
 ```bash
 bun install
 git submodule update --init --recursive   # forge-std, for the contracts
-cp .env.example .env                      # every Attestcoin var is optional
+cp .env.example .env                      # nothing in it is needed for the tests
 ```
 
-Nothing in `.env` is required to run the tests. The Attestcoin integration is off unless
-`ATTESTPAY_PAYMENT_ANCHOR_ADDRESS`, `ATTESTPAY_ASC_ADDRESS` and
-`ATTESTPAY_ATTESTCOIN_PRIVATE_KEY` are all set, and the server says which are missing at
-boot rather than silently no-oping.
+Nothing in `.env` is required to run the tests. To make real payments the server needs
+`KEEPERHUB_API_KEY` (KeeperHub executes every payment); without it each payment fails
+loudly with `keeperhub_not_configured` rather than silently no-oping. Provision the
+workflows once with `bun run --cwd packages/server keeperhub:provision` — the server
+resolves them by name at boot, so there are no workflow ids to copy into `.env`.
 
 ## The checks
 
@@ -34,7 +35,7 @@ CI runs exactly these four.
 from them by semantic-release. Keep the subject to one line.
 
 ```
-feat(engine): anchor confirmed payments on an attested chain
+feat(engine): anchor confirmed payments as on-chain receipts
 fix: use the revocation-nonce test seam so the suite is order-independent
 ```
 
@@ -46,9 +47,10 @@ Types in use: `feat`, `fix`, `perf`, `refactor`, `deploy`, `docs`, `test`, `chor
 
 Two house rules, both learned the hard way:
 
-- **Don't test your own encoder against your own decoder.** `ProvenTxDecoder` parses an
-  encoding defined by someone else's SDK, so its fixtures are real prover output
-  (`contracts/test/RealProofFixtures.sol`). Self-consistency would prove nothing.
+- **Don't test your own assumptions against themselves.** KeeperHub's API is someone
+  else's, so the KeeperHub suites replay responses captured from the real service
+  (`docs/keeperhub/api-notes.md` records how it actually behaves). A mock that agrees
+  with the code that wrote it proves nothing.
 - **A test must not depend on the network or on file ordering.** `issueRootCard` takes a
   `revocationNonceOverride` seam precisely so suites don't make live chain reads; use it.
   A suite that passes only because another suite ran first and warmed a cached RPC client
@@ -56,14 +58,14 @@ Two house rules, both learned the hard way:
 
 ## Honesty about guarantees
 
-This project's case rests on saying exactly what is proven and what is not. If you change
-anything that a user- or agent-facing surface describes as "verified", check that
-`TRUST_MODEL` in `packages/server/src/mcp/attestcoin-tools.ts`, `SECURITY.md` and the
-README still describe what the code actually does. An agent relaying a receipt to a human
-should not be able to overstate it.
-
-Related: compliance is counted as `withinTermsPayments` over `termsCheckedPayments`, so a
-card with no registered terms gets no free 100%. Don't "fix" that into a friendlier number.
+This project's case rests on saying exactly what is established and what is not. An
+on-chain receipt (`PaymentAnchor.anchorPayment`, written by KeeperHub on the chain the
+payment settled on) establishes that the anchorer claimed the payment with exactly those
+values; the payment itself is checked by opening `sourceTxHash` on the same chain. If you
+change anything a user- or agent-facing surface says about a dry run, an execution or a
+receipt, check that the MCP tool descriptions, `SECURITY.md` and the README still describe
+what the code actually does. An agent relaying a receipt to a human should not be able to
+overstate it.
 
 ## Pull requests
 

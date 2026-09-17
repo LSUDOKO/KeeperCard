@@ -33,8 +33,8 @@ grep -rho "attestpay-api.onrender.com[^\"']*" packages/dashboard/.open-next | so
 > domain, would change the host — and recreating it would mean re-entering every secret.
 > The dashboard is built against the real host, not the service name.
 
-The blueprint is `render.yaml`. Non-secret KeeperHub values (workflow ids, wallet, the
-dry-run gate) are declared there; anything `sync: false` must be set by hand.
+The blueprint is `render.yaml`. Non-secret KeeperHub values (wallet, the dry-run gate,
+the receipt anchor address, the depeg floor) are declared there; anything `sync: false` must be set by hand.
 
 ### Set these in Render → your service → Environment
 
@@ -43,11 +43,15 @@ dry-run gate) are declared there; anything `sync: false` must be set by hand.
 | `KEEPERHUB_API_KEY` | your `kh_…` key | Without it every payment fails loudly with `keeperhub_not_configured` |
 | `ATTESTPAY_ADMIN_TOKEN` | a fresh random string | **Never reuse a local dev token.** This is full admin over the API |
 | `ATTESTPAY_MASTER_KEY` | existing value | Encrypts card secrets |
+| `ATTESTPAY_7702_SPONSOR_PK` | a funded key | Pays for a fresh account's one-time EIP-7702 upgrade; needs a little native gas on Base Sepolia |
 | `ATTESTPAY_PRIVY_APP_ID` | existing value | Must match the dashboard's build-time Privy app id, or every request 401s |
 
-The workflow ids are already in `render.yaml`. Re-run
-`bun run --cwd packages/server keeperhub:provision` only if you recreate the workflows;
-it matches by name, so ids stay stable.
+No workflow ids are configured anywhere: the server resolves every workflow **by name**
+at boot. Run `bun run --cwd packages/server keeperhub:provision` once per KeeperHub
+organisation (it is idempotent, and enables the workflows it creates);
+`KEEPERHUB_WORKFLOW_<KEY>` exists only as an optional pin. Receipts are written to
+`PaymentAnchor` at `KEEPERHUB_RECEIPT_ANCHOR_ADDRESS`
+(`0x56733223c688cce7fc65826b692b3f8521e4ab3e` on Base Sepolia, already in `render.yaml`).
 
 ### Confirm it took
 
@@ -80,7 +84,7 @@ payment.
   reads `ATTESTPAY_CHAIN_ID` at boot. A mismatch produces delegations that cannot be
   redeemed, and the failure surfaces far from its cause.
 - **Free-tier Render has no persistent disk.** `/data` resets on every deploy and whenever
-  the instance sleeps, which loses cards, delegations and the proof queue. Attach a disk
+  the instance sleeps, which loses cards, delegations and the payment history. Attach a disk
   for anything beyond a demo.
 - **Gas sponsorship covers fees, not assets.** The KeeperHub wallet needs the tokens a
   payment moves; it does not need native gas on the supported chains.

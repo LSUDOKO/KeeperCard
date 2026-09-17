@@ -8,7 +8,7 @@
 
 The `mcp_tool_*` spans and the trace-root HTTP spans are **code changes** — they only exist in SigNoz after the server is redeployed.
 
-1. Go to **Railway Dashboard → your KeeperCard project → Deployments**
+1. Go to **Render Dashboard → `keepercard-api` → Events / Deploys**
 2. It should auto-detect commit `4cf5313` (`feat(otel): mcp_tool_* spans...`)
 3. If it didn't auto-deploy → click **Deploy → Redeploy**
 4. Wait ~2 minutes until the deployment shows **Healthy**
@@ -46,7 +46,7 @@ Do 5–10 actions so there's a decent volume to look at.
 ## STEP 2 — Verify TRACES (the big one) 🔭
 
 1. Open **SigNoz** → **Traces** (left sidebar)
-2. Filter: `service.name = attestpay-server` (or just search)
+2. Filter: `service.name = keepercard-server` (or just search)
 3. You should see a list of recent traces. Now verify each new feature:
 
 | What to check | How |
@@ -70,15 +70,15 @@ Do 5–10 actions so there's a decent volume to look at.
 
 | Metric | Trigger to make it appear |
 |---|---|
-| `attestpay.cards_issued_total` | Issue a card |
-| `attestpay.active_cards` | Issue a card |
-| `attestpay.usdc_spent_total` | A confirmed payment |
-| `attestpay.charges_total` | A charge processed |
-| `attestpay.errors_total` | Any API 4xx/5xx (e.g. bad curl) |
+| `keepercard.cards_issued_total` | Issue a card |
+| `keepercard.active_cards` | Issue a card |
+| `keepercard.usdc_spent_total` | A confirmed payment |
+| `keepercard.charges_total` | A charge processed |
+| `keepercard.errors_total` | Any API 4xx/5xx (e.g. bad curl) |
 
 3. Click one → you should see a graph of values over time.
 
-✅ **Pass =** at least `attestpay.errors_total` has data points (easiest to trigger).
+✅ **Pass =** at least `keepercard.errors_total` has data points (easiest to trigger).
 
 ---
 
@@ -111,7 +111,7 @@ Do 5–10 actions so there's a decent volume to look at.
    - API Request Duration by Route
 3. Add the extended panels from `architecture.md` (USE CASE 13 🅼):
    - **Refusal reasons breakdown** (logs, group by `refusal_reason`)
-   - **Charge success rate** (`attestpay.charges_total`)
+   - **Charge success rate** (`keepercard.charges_total`)
    - **MCP tool usage** (traces, group by `mcp.tool`)
    - **Webhook decision mix** (`stripe_webhook_auth` group by `app.response.reason`)
    - **Dependency latency** (client spans by `server.address`)
@@ -142,7 +142,7 @@ SigNoz → **Traces / Logs explorer → set the filter → "Save view"**
 
 | Alert | Signal | Condition |
 |---|---|---|
-| High Error Rate | `attestpay.errors_total` | rate > 10/min for 5 min → **Critical → Slack** |
+| High Error Rate | `keepercard.errors_total` | rate > 10/min for 5 min → **Critical → Slack** |
 | Refusal Spike | Logs `refusal_reason:*` | count > 20/min → **Warning → Slack** |
 | Webhook SLA | `stripe_webhook_auth` | p99 > 1800ms → **Warning** |
 | No Card Activity | `mcp_tool_*` spans | absent for 30 min → **Info → Email** (absent-data alert) |
@@ -154,9 +154,9 @@ SigNoz → **Traces / Logs explorer → set the filter → "Save view"**
 ## STEP 8 — Service Map 🗺️
 
 1. SigNoz → **Services** (or APM → Service Map)
-2. You should see `attestpay-server` as a node with edges to its dependencies:
+2. You should see `keepercard-server` as a node with edges to its dependencies:
    - **Stripe** (fetch client spans)
-   - **1Shot Relayer** (`1shot_relayer_redeem`)
+   - **KeeperHub** (`keeperhub.dry_run`, `keeperhub.execute`)
    - **Venice AI** (`nl_compile`)
    - **Basescan** / **SQLite** (DB spans)
    - **MCP clients** (agent tool calls)
@@ -194,18 +194,18 @@ SigNoz → **Traces / Logs explorer → set the filter → "Save view"**
 ## 📋 Quick Checklist (paste into the demo notes)
 
 ```
-[ ] Railway redeployed with 4cf5313
+[ ] Render redeployed with 4cf5313
 [ ] Claude: card, shop_products, shop_buy → traces in SigNoz
 [ ] HTTP span is the trace root (waterfall works)
 [ ] mcp_tool_* spans visible with card_id
 [ ] A refusal shows mcp.refusal_code on the span
 [ ] stripe_webhook_auth span with approve/decline reason
-[ ] attestpay.errors_total has data points
+[ ] keepercard.errors_total has data points
 [ ] Log click → jumps to its trace (trace_id correlation)
 [ ] Dashboard has 5 core + MCP Tool Usage + Refusal panels
 [ ] Saved views: Card Lifecycle, Refusals, Failing Tool Calls
 [ ] Slack channel connected + at least 1 alert
-[ ] Service map shows Stripe / 1Shot / Venice / SQLite
+[ ] Service map shows Stripe / KeeperHub / Venice / SQLite
 [ ] Cost Meter shows per-signal breakdown
 [ ] SigNoz MCP answers a query
 ```
@@ -216,8 +216,8 @@ SigNoz → **Traces / Logs explorer → set the filter → "Save view"**
 
 | Problem | Likely cause | Fix |
 |---|---|---|
-| No `mcp_tool_*` spans | Old code still deployed | Redeploy Railway to `4cf5313` |
+| No `mcp_tool_*` spans | Old code still deployed | Redeploy on Render to `4cf5313` |
 | No metrics in dropdown | Metric never emitted (README gotcha) | Trigger the code path, then refresh |
-| No `stripe_webhook_auth` | Webhook URL/secret wrong on Stripe/Railway | URL must be `/stripe/webhook` + `ATTESTPAY_STRIPE_WEBHOOK_SECRET` set |
+| No `stripe_webhook_auth` | Webhook URL/secret wrong on Stripe/Render | URL must be `/stripe/webhook` + `ATTESTPAY_STRIPE_WEBHOOK_SECRET` set |
 | Logs show but no trace link | Log emitted outside a request context (sweeps) | Check request-triggered logs (card, shop_buy) |
 | Traces slow to appear | Batch export (~a few seconds) | Wait 10–30 s, refresh |

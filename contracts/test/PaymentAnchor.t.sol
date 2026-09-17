@@ -48,8 +48,8 @@ contract PaymentAnchorTest is Test {
         assertEq(anchor.anchorCount(keccak256("other_card")), 0);
     }
 
-    /// One Base payment must not be anchorable twice: repetition would otherwise inflate
-    /// a credit score without any new money moving.
+    /// One Base payment must not be anchorable twice: repetition would otherwise mint
+    /// extra receipts without any new money moving.
     function test_rejectsDuplicateSourcePayment() public {
         _anchor(2_000_000, BASE_TX);
         vm.expectRevert(abi.encodeWithSelector(PaymentAnchor.AlreadyAnchored.selector, 8453, BASE_TX));

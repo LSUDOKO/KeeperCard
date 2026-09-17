@@ -1,4 +1,4 @@
-# AttestPay API server (packages/server).
+# KeeperCard API server (packages/server).
 #
 # Bun, not Node: the server uses `bun:sqlite` and `Bun.serve`, so the Bun image is a
 # requirement rather than a preference. See docs/deployment-cloudflare.md for why this

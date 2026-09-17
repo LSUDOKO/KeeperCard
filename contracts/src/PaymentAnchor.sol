@@ -57,7 +57,7 @@ contract PaymentAnchor {
     mapping(bytes32 => uint256) public anchorCount;
 
     /// @notice Guards against the same source payment being anchored twice, which
-    /// would otherwise let one Base payment inflate a credit score by repetition.
+    /// would otherwise let one payment show up as several receipts by repetition.
     /// Keyed by `keccak256(sourceChainId, sourceTxHash)` so the same hash on two
     /// different chains stays distinct.
     mapping(bytes32 => bool) public anchored;

@@ -38,13 +38,13 @@ Deployed 2026-09-13 (Worker version `b64cd9c4`) from the sketchbook redesign, bu
 the Render API (`render.yaml`, service `keepercard-api`). The Privy app id and client id
 fall back to the public defaults in `lib/chain.ts`, so they need no build variable.
 
-Routes verified live after deploy: `/`, `/app`, `/docs`, `/connect`, `/settings`, `/shop`,
-`/card/<id>`, `/passport/<address>` (200) and an unknown path (branded 404).
+Routes verified live after deploy: `/`, `/app`, `/keeperhub`, `/docs`, `/connect`, `/settings`, `/shop`,
+`/card/<id>` (200) and an unknown path (branded 404).
 
 Two things must be true on the Render side before a visitor can sign in and onboard:
 
-1. The API has to be booting: its secrets (`ATTESTPAY_MASTER_KEY`, `ATTESTPAY_ADMIN_TOKEN`,
-   `ATTESTPAY_ATTESTCOIN_PRIVATE_KEY`, `ATTESTPAY_PRIVY_APP_ID`) are set only in the Render
+1. The API has to be booting: its secrets (`KEEPERHUB_API_KEY`, `ATTESTPAY_MASTER_KEY`,
+   `ATTESTPAY_ADMIN_TOKEN`, `ATTESTPAY_7702_SPONSOR_PK`, `ATTESTPAY_PRIVY_APP_ID`) are set only in the Render
    dashboard, never committed.
 2. `ATTESTPAY_CORS_ORIGINS` must include `https://keepercard-dashboard.adoranto737.workers.dev`
    (it is in `render.yaml`; the server defaults to `http://localhost:4071` otherwise, and
@@ -70,7 +70,7 @@ configuration change:
 | `bun:sqlite` | 37 call sites across three stores, all **synchronous**. Workers have no SQLite; D1's API is async, so every call site and its callers change |
 | `@opentelemetry/sdk-node` + auto-instrumentations | Node-only; does not run on Workers |
 | Three `setInterval` sweeps | Workers have no long-lived process; these become Cron Triggers |
-| Durable state | The SQLite file *is* the card tree, the delegations, and the proof queue |
+| Durable state | The SQLite file *is* the card tree, the delegations, and the payment history |
 
 The delegation and spend paths are where a bug moves money, so this is deliberately not
 being rushed. Options, in order of how much they change:

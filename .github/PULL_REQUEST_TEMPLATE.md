@@ -17,7 +17,7 @@
 
 ## Guarantees
 
-<!-- Delete if this touches nothing that claims something is "verified" or "proven". -->
+<!-- Delete if this touches nothing that bounds a spend or writes an on-chain receipt. -->
 
-- [ ] This does not widen what the project claims a proof establishes.
-- [ ] `TRUST_MODEL`, `SECURITY.md` and the README still describe what the code does.
+- [ ] This does not widen what a card may spend or what the project claims a receipt establishes.
+- [ ] `SECURITY.md` and the README still describe what the code does.

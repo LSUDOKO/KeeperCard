@@ -3,7 +3,6 @@ src = "src"
 out = "out"
 libs = ["lib"]
 test = "test"
-script = "script"
 solc = "0.8.24"
 optimizer = true
 optimizer_runs = 200
@@ -14,10 +13,10 @@ via_ir = true
 
 [rpc_endpoints]
 base_sepolia = "https://sepolia.base.org"
-creditcoin = "${ATTESTPAY_CREDITCOIN_HTTP_RPC}"
+base = "https://mainnet.base.org"
 
 [etherscan]
-sepolia = { key = "${ETHERSCAN_API_KEY}", chain = 11155111 }
+base_sepolia = { key = "${ETHERSCAN_API_KEY}", chain = 84532 }
 
 # Formatting is enforced in CI (`forge fmt --check`), so the sources are normalised to
 # these settings once rather than left at whatever width each was authored to.

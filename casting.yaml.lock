@@ -42,7 +42,7 @@ volumes:
 # Reproduce:
 #   foundryctl cast -f casting.yaml --locked
 #
-# After deployment, AttestPay's OTel exporter sends to http://localhost:4318
+# After deployment, KeeperCard's OTel exporter sends to http://localhost:4318
 # and the SigNoz UI is at http://localhost:3301.
 # Configure your AI agent to use the SigNoz MCP server at http://localhost:8000
 # for agentic observability workflows.

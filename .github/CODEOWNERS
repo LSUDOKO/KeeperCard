@@ -1,9 +1,9 @@
 # Default owner for everything.
 *                       @LSUDOKO
 
-# The parts where a mistake is expensive: contracts move records onto public chains,
-# and the Attestcoin surface is what decides whether something counts as "verified".
+# The parts where a mistake is expensive: the contract writes receipts onto a public
+# chain, and the KeeperHub lane is what actually moves money.
 /contracts/             @LSUDOKO
-/packages/engine/src/attestcoin/   @LSUDOKO
-/packages/server/src/attestcoin/   @LSUDOKO
+/packages/engine/src/keeperhub/    @LSUDOKO
+/packages/server/src/keeperhub/    @LSUDOKO
 /SECURITY.md            @LSUDOKO

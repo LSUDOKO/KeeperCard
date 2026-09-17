@@ -11,21 +11,21 @@
 │                          USERS & AGENTS                                   │
 │                                                                          │
 │   Dashboard (Next.js)          Claude / Cursor / Gemini / Codex ...      │
-│   glass-pay.vercel.app         (MCP clients — Streamable HTTP)           │
+│   Cloudflare Workers           (MCP clients — Streamable HTTP)           │
 │   Privy Google login                                                     │
 └───────────────┬──────────────────────────────┬──────────────────────────┘
                 │ /api (Privy token)           │ MCP tools (card secret URL)
                 ▼                              ▼
 ┌──────────────────────────────────────────────────────────────────────────┐
-│                    attestpay-server (Bun + Hono, Railway)                 │
-│                            service.name = attestpay-server                 │
-│                                                                            │
+│                    keepercard-server (Bun + Hono, Render)                │
+│                       service.name = keepercard-server                   │
+│                                                                          │
 │  ┌──────────────┐ ┌──────────────┐ ┌──────────────┐ ┌───────────────┐   │
 │  │  REST API    │ │ MCP endpoint │ │ x402 Facil-  │ │ Stripe Webhook│   │
 │  │  /api/*      │ │ /c/<s>/mcp   │ │ itator       │ │ /stripe/webhook│  │
 │  │  (cards,     │ │ (card, pay,  │ │ /facilitator │ │ (2s decision) │   │
 │  │   oauth,     │ │  fiat_pay,   │ │  verify/     │ └───────────────┘   │
-│  │   compile)   │ │  shop_buy…)  │ │  settle      │                      │
+│  │   compile)   │ │  dry_run…)   │ │  settle      │                      │
 │  └──────┬───────┘ └──────┬───────┘ └──────┬───────┘                      │
 │         │                │                │                              │
 │         └────────────────┴───────┬────────┘                              │
@@ -40,10 +40,10 @@
 │              ┌────────────┘         └───────────┐                        │
 │              ▼                                ▼                          │
 │   ┌────────────────────┐          ┌─────────────────────┐                │
-│   │ 1Shot Public       │          │ Stripe Issuing      │                │
-│   │ Relayer (Base)     │          │ (test-mode Visa)    │                │
-│   │ gasless USDC       │          │ virtual card per    │                │
-│   │ redemption         │          │ KeeperCard card       │                │
+│   │ KeeperHub          │          │ Stripe Issuing      │                │
+│   │ (execution layer)  │          │ (test-mode Visa)    │                │
+│   │ dry run · redeem · │          │ virtual card per    │                │
+│   │ receipt anchor     │          │ KeeperCard card     │                │
 │   └────────────────────┘          └─────────────────────┘                │
 └──────────────────────────────┬───────────────────────────────────────────┘
                                │ OTLP HTTP (port 4318) — traces, metrics, logs
@@ -79,21 +79,21 @@
 
 Loaded via **`bun --preload ./src/otel.ts`** so the SDK starts *before any other module* — auto-instrumentation then wraps every HTTP, fetch, and DB call from boot.
 
-- `NodeSDK` with `serviceName: "attestpay-server"`
+- `NodeSDK` with `serviceName: "keepercard-server"`
 - `getNodeAutoInstrumentations()` — HTTP/fetch/DB/dns/fs spans (dns + fs **disabled** to avoid noise)
 - **All 3 signals** exported over OTLP HTTP:
   - Traces → `OTLPTraceExporter`
   - Metrics → `OTLPMetricExporter`
   - Logs → `OTLPLogExporter` (BatchLogRecordProcessor)
 - Exporters auto-detected from env: `OTEL_EXPORTER_OTLP_ENDPOINT` + `OTEL_EXPORTER_OTLP_HEADERS` (the `signoz-ingestion-key`)
-- Graceful shutdown on `SIGTERM` (Railway sends this)
+- Graceful shutdown on `SIGTERM` (the host sends this on redeploy)
 
 ### 3.2 Three Signals, One Pipeline
 
 ```
 otel.ts (SDK) ──► auto-instrumentation (HTTP/fetch/DB)
               ──► Hono middleware span per request        (server/src/app.ts)
-              ──► business spans                          (stripe, relayer, compiler, sweeps)
+              ──► business spans                          (stripe, keeperhub, compiler, sweeps)
               ──► Meter API counters / up-down counters   (engine/src/telemetry.ts)
               ──► Logger API structured logs              (engine/src/telemetry.ts)
                               │
@@ -111,10 +111,10 @@ otel.ts (SDK) ──► auto-instrumentation (HTTP/fetch/DB)
 
 Every inbound HTTP request, outbound `fetch`, and SQLite call is wrapped automatically:
 - HTTP request spans with method, route, status, headers
-- Fetch client spans (relayer calls, Venice API, Stripe API, Basescan)
+- Fetch client spans (KeeperHub API, Venice API, Stripe API, Basescan)
 - DB spans (SQLite queries)
 
-**See in SigNoz:** Traces → filter `service.name = attestpay-server` → every request shows a waterfall of its internal fetch/DB hops.
+**See in SigNoz:** Traces → filter `service.name = keepercard-server` → every request shows a waterfall of its internal fetch/DB hops.
 
 ---
 
@@ -139,18 +139,19 @@ Errors are captured: `span.recordException(e)` + `SpanStatusCode.ERROR`.
 
 ### 🅲 USE CASE 3 — Business-Logic Spans (the money moments)
 
-Five custom spans wrap the domain-critical operations. These are the **hackathon gold** — each one carries money/decision context.
+Custom spans wrap the domain-critical operations. These are the **hackathon gold** — each one carries money/decision context.
 
 | Span name | Where | Attributes | Why it matters |
 |---|---|---|---|
 | `stripe_webhook_auth` | `server/src/stripe/routes.ts` | `stripe.charge_id`, `card_id`, `latency_critical=true`, `app.response.approved`, `app.response.reason` | The **2-second SLA** — Stripe declines if we take >2s. Watch latency + every approve/decline reason |
-| `1shot_relayer_redeem` | `engine/src/spend.ts` + `engine/src/relayer.ts` | `usdc_amount`, `gas_fee_usdc`, `tx_hash`, `memo` (per README) | Every real on-chain USDC payment, gasless via 1Shot |
+| `keeperhub.dry_run` / `keeperhub.execute` / `keeperhub.execution_poll` | `engine/src/keeperhub/telemetry.ts` (`traceKeeperHub`) | workflow + execution attributes set by the caller | Every real on-chain USDC payment: KeeperHub dry-runs it, executes it, and is polled to confirmation |
+| `1shot_relayer_redeem` | `engine/src/relayer.ts` | `usdc_amount`, `gas_fee_usdc`, `tx_hash`, `memo` | Rollback lane only (`ATTESTPAY_EXECUTOR=1shot`) |
 | `nl_compile` | `server/src/venice/client.ts` + `server/src/venice/compiler.ts` | token usage, intent metadata (per README) | Plain-language → CardTerms compilation (Venice AI) |
-| `relayer_get_capabilities` / `relayer_get_fee_data` | `engine/src/relayer.ts` | — | Latency of relayer capability/fee probes during a spend |
+| `relayer_get_capabilities` / `relayer_get_fee_data` | `engine/src/relayer.ts` | — | Rollback lane only: relayer capability/fee probes |
 | `reconcile_sweep` | `server/src/index.ts` (every 5 min) | `reconciled`, `still_pending` | Detects stuck-pending charges silently piling up |
 | `fiat_settle_sweep` | `server/src/index.ts` (every 60s + startup) | `settled`, `left` | Visa → on-chain settlement drift recovery |
 
-**See in SigNoz:** Traces → search the span name → see duration, decision, and error status. A `stripe_webhook_auth` trace trending toward 1800ms predicts Stripe timeouts *before* they happen. (Attributes on `1shot_relayer_redeem` / `nl_compile` follow the README; the span names themselves are confirmed in the code above.)
+**See in SigNoz:** Traces → search the span name → see duration, decision, and error status. A `stripe_webhook_auth` trace trending toward 1800ms predicts Stripe timeouts *before* they happen. (The span names are confirmed in the code above.)
 
 ---
 
@@ -160,11 +161,11 @@ Five custom spans wrap the domain-critical operations. These are the **hackathon
 
 | Metric | Type | Emitted when |
 |---|---|---|
-| `attestpay.cards_issued_total` | Counter | A card (root or sub) is issued |
-| `attestpay.active_cards` | UpDownCounter | Issue (+1) / revoke (−1) |
-| `attestpay.usdc_spent_total` | Counter | Confirmed redemptions + fiat settlements |
-| `attestpay.charges_total` | Counter | Charges processed (confirmed + pending + failed) |
-| `attestpay.errors_total` | Counter | Every 403/422/502/500 (`api/routes.ts` `handle()`) |
+| `keepercard.cards_issued_total` | Counter | A card (root or sub) is issued |
+| `keepercard.active_cards` | UpDownCounter | Issue (+1) / revoke (−1) |
+| `keepercard.usdc_spent_total` | Counter | Confirmed redemptions + fiat settlements |
+| `keepercard.charges_total` | Counter | Charges processed (confirmed + pending + failed) |
+| `keepercard.errors_total` | Counter | Every 403/422/502/500 (`api/routes.ts` `handle()`) |
 
 > ⚠️ **Metric naming gotcha (from blog-post.md):** metric names appear in SigNoz exactly as written — dots and all. The Metrics explorer only shows metrics that have *sent at least one data point*, so trigger a code path first (issue a card, make a payment) before looking for them in the dropdown.
 
@@ -195,10 +196,10 @@ Ready-made SQL for a **KeeperCard dashboard** (also in `README.md`):
 
 | Panel | Signal | Query source |
 |---|---|---|
-| Cards Issued Over Time (time series) | Metrics | `signoz_metrics.distributed_samples_v2` → `attestpay_cards_issued_total` |
-| Active Cards (value/gauge) | Metrics | `attestpay_active_cards` last 60s |
-| USDC Spent (time series) | Metrics | `attestpay_usdc_spent_total` |
-| API Errors (time series) | Metrics | `attestpay_errors_total` |
+| Cards Issued Over Time (time series) | Metrics | `signoz_metrics.distributed_samples_v2` → `keepercard_cards_issued_total` |
+| Active Cards (value/gauge) | Metrics | `keepercard_active_cards` last 60s |
+| USDC Spent (time series) | Metrics | `keepercard_usdc_spent_total` |
+| API Errors (time series) | Metrics | `keepercard_errors_total` |
 | API Request Duration by Route | Traces | `signoz_traces.distributed_signoz_index_v2` grouped by `http.route` |
 
 ---
@@ -207,8 +208,8 @@ Ready-made SQL for a **KeeperCard dashboard** (also in `README.md`):
 
 | Alert | Condition | Severity |
 |---|---|---|
-| High Error Rate | `attestpay_errors_total` rate > 10/min for 5 min | Critical |
-| No Cards Issued | `attestpay_cards_issued_total` flat for 30 min | Warning |
+| High Error Rate | `keepercard_errors_total` rate > 10/min for 5 min | Critical |
+| No Cards Issued | `keepercard_cards_issued_total` flat for 30 min | Warning |
 | High API Latency | P99 HTTP duration > 5000ms for 5 min | Warning |
 | Spike in Refusals | Log count with `refusal_reason:*` > 20/min | Warning |
 
@@ -264,7 +265,7 @@ Then an AI agent can:
 | `mcp_tool_execute` | same | Scoped contract call |
 | `mcp_tool_issue_subcard` / `mcp_tool_revoke_subcard` | same | Sub-card lifecycle |
 
-Every span carries `card_id` + a typed `mcp.refusal_code` on failure (e.g. `over_period_limit`, `merchant_not_allowed`). Because the HTTP middleware uses `startActiveSpan` (USE CASE 2), each tool span **waterfalls under its request span** — one click from HTTP → MCP tool → Stripe/relayer/DB hops.
+Every span carries `card_id` + a typed `mcp.refusal_code` on failure (e.g. `over_period_limit`, `merchant_not_allowed`). Because the HTTP middleware uses `startActiveSpan` (USE CASE 2), each tool span **waterfalls under its request span** — one click from HTTP → MCP tool → Stripe/KeeperHub/DB hops.
 
 **See in SigNoz:** Traces → search `mcp_tool_` → filter by tool or refusal code. Answer questions like *"which tools do agents call most?"*, *"which card is erroring?"*, *"what got refused and why?"*.
 
@@ -277,7 +278,7 @@ KeeperCard is set up for the full **RED** method (Rate, Errors, Duration) and SL
 | RED dimension | KeeperCard signal | Where it comes from |
 |---|---|---|
 | **R**ate | Requests/sec per route or tool | HTTP spans / `mcp_tool_*` spans |
-| **E**rrors | Error rate per route / refusal rate | `attestpay.errors_total` metric + error logs + span status |
+| **E**rrors | Error rate per route / refusal rate | `keepercard.errors_total` metric + error logs + span status |
 | **D**uration | p50/p95/p99 per route and per tool | Span latencies (HTTP, `stripe_webhook_auth`, `mcp_tool_*`) |
 
 **Suggested SLI/SLO for the demo:**
@@ -305,7 +306,7 @@ Ready-made views to create in SigNoz (via the MCP server or UI, per `signoz-mana
 | **Slow Webhooks** | Traces | `name = 'stripe_webhook_auth'` + `duration > 1500ms` | Predict Stripe 2s timeouts |
 | **Slow API Routes** | Traces | `duration_nano > 1s` | Latency outliers by route |
 
-Every view carries the same `service.name = attestpay-server` + environment filter, so prod/staging never mix.
+Every view carries the same `service.name = keepercard-server` + environment filter, so prod/staging never mix.
 
 ---
 
@@ -316,12 +317,12 @@ Add these to the KeeperCard dashboard:
 | Panel | Signal | Query sketch |
 |---|---|---|
 | **Refusal reasons breakdown** (pie/bar) | Logs | `refusal_reason:*` grouped by `refusal_reason` |
-| **Charge success rate** (time series) | Metrics | `attestpay.charges_total` with `charge_event` attribute → confirmed vs failed ratio |
+| **Charge success rate** (time series) | Metrics | `keepercard.charges_total` with `charge_event` attribute → confirmed vs failed ratio |
 | **MCP tool usage** (bar) | Traces | `mcp_tool_*` spans grouped by `mcp.tool` |
 | **Webhook decision mix** (stacked) | Traces | `stripe_webhook_auth` grouped by `app.response.approved` + `app.response.reason` |
-| **USDC spent per card** (top-N table) | Metrics | `attestpay.usdc_spent_total` grouped by card label |
-| **Active vs revoked cards** (gauge) | Metrics | `attestpay.active_cards` + log count of `card_event: revoked` |
-| **Dependency latency** (time series) | Traces | client spans grouped by `server.address` (Stripe, 1Shot, Venice, Basescan, SQLite) |
+| **USDC spent per card** (top-N table) | Metrics | `keepercard.usdc_spent_total` grouped by card label |
+| **Active vs revoked cards** (gauge) | Metrics | `keepercard.active_cards` + log count of `card_event: revoked` |
+| **Dependency latency** (time series) | Traces | client spans grouped by `server.address` (Stripe, KeeperHub, Venice, Basescan, SQLite) |
 
 ---
 
@@ -331,7 +332,7 @@ Beyond the 4 core alerts (USE CASE 7), wire them to real channels:
 
 | Alert | Condition | Channel suggestion | Severity |
 |---|---|---|---|
-| High Error Rate | `attestpay.errors_total` > 10/min, 5 min | Slack #attestpay-critical (or PagerDuty) | Critical |
+| High Error Rate | `keepercard.errors_total` > 10/min, 5 min | Slack #keepercard-critical (or PagerDuty) | Critical |
 | Webhook SLA breach | `stripe_webhook_auth` p99 > 1800ms | Slack | Warning |
 | Refusal spike | `refusal_reason:*` > 20/min | Slack | Warning |
 | **No card activity** (absent-data) | no `mcp_tool_*` spans for 30 min | Email | Info |
@@ -368,9 +369,9 @@ SigNoz's **Cost Meter** shows ingestion by signal, service, and env — the `sig
 SigNoz's **Service Map** auto-derives KeeperCard's dependency topology from client spans:
 
 ```
-attestpay-server
+keepercard-server
   ├── Stripe API        (fetch client spans — webhook/issuing calls)
-  ├── 1Shot Relayer     (1shot_relayer_redeem + HTTP client spans)
+  ├── KeeperHub         (keeperhub.* spans + HTTP client spans)
   ├── Venice AI         (nl_compile — LLM compilation)
   ├── Basescan          (verified-contract lookups)
   ├── SQLite            (DB spans — local store)
@@ -379,12 +380,12 @@ attestpay-server
 
 | Panel | What it answers |
 |---|---|
-| Dependency error rate | Which external service is failing (Stripe vs relayer vs Venice)? |
+| Dependency error rate | Which external service is failing (Stripe vs KeeperHub vs Venice)? |
 | Dependency p99 latency | Which hop is slow? (client-span `server.address` grouping) |
 | Service Map view | Live topology + health per node |
-| Infra panels (optional) | CPU/memory/restarts — only if KeeperCard ships host metrics (Railway) |
+| Infra panels (optional) | CPU/memory/restarts — only if KeeperCard ships host metrics |
 
-**The classic finding:** a healthy `attestpay-server` fronting a sick dependency (e.g. relayer latency) still fails users — the service map makes that visible immediately.
+**The classic finding:** a healthy `keepercard-server` fronting a sick dependency (e.g. KeeperHub latency) still fails users — the service map makes that visible immediately.
 
 ---
 
@@ -395,7 +396,8 @@ attestpay-server
 ```
 Agent calls MCP `pay`  ──► HTTP span (auto) + MCP tool span
   └─ engine validates terms  ──► refusal? emitRefusalLog (WARN) + errors_total++
-  └─ relayer redeems on Base  ──► 1shot_relayer_redeem span (usdc_amount, tx_hash)
+  └─ KeeperHub dry-runs, then redeems on Base  ──► keeperhub.dry_run + keeperhub.execute spans
+  └─ KeeperHub anchors the receipt (PaymentAnchor, same chain)  ──► background, never blocks the payment
   └─ charge confirmed          ──► emitChargeLog("confirmed") + usdcSpentTotal++
   └─ card issued               ──► cardsIssuedTotal++ / activeCards++
 ```
@@ -447,7 +449,7 @@ Local self-hosted: set `OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318`.
 6. **Hono middleware** ✅ route-level span per request
 7. **SigNoz MCP** ✅ included `signoz-mcp-server` — agents can observe the agent-money system
 8. **Reproducible deployment** ✅ `casting.yaml` for `foundryctl cast`
-9. **Operational value** ✅ real incidents found: `/cards/:id` 800ms P99, silently stuck pending charges, relayer gas-fee silent failures
+9. **Operational value** ✅ real incidents found: `/cards/:id` 800ms P99, silently stuck pending charges, execution-layer silent failures
 
 ---
 

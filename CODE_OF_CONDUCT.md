@@ -2,7 +2,7 @@
 
 ## Our pledge
 
-We want participation in AttestPay to be a harassment-free experience for everyone,
+We want participation in KeeperCard to be a harassment-free experience for everyone,
 regardless of age, body size, visible or invisible disability, ethnicity, sex
 characteristics, gender identity and expression, level of experience, education,
 socio-economic status, nationality, personal appearance, race, religion, or sexual
@@ -31,7 +31,7 @@ representing the project in public.
 ## Enforcement
 
 Report unacceptable behaviour to the maintainers via a
-[private security advisory](https://github.com/LSUDOKO/AttestPay/security/advisories/new)
+[private security advisory](https://github.com/LSUDOKO/KeeperCard/security/advisories/new)
 if it involves anything sensitive, or by opening an issue if it does not. Reports will be
 reviewed and responded to in a way that respects the reporter's privacy.
 

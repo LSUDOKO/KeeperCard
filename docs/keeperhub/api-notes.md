@@ -129,8 +129,9 @@ holding 0 ETH.
 ## Chains
 
 24 chains at the time of writing: Ethereum, Sepolia, Base, Base Sepolia, Arbitrum,
-Polygon, and others. **Creditcoin CC3 is not among them**, which is why the Attestcoin
-proof's second leg stays on KeeperCard's direct RPC path.
+Polygon, and others. KeeperCard settles on Base Sepolia (84532) for the demo and supports
+Base mainnet (8453); both are covered, so the payment and its on-chain receipt run through
+KeeperHub on the same chain.
 
 ## Cold starts
 

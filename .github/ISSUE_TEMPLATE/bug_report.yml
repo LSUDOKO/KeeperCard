@@ -6,14 +6,14 @@ body:
     attributes:
       value: |
         If the bug could move funds or let a payment record be falsified, please report it
-        privately instead: [security advisory](https://github.com/LSUDOKO/AttestPay/security/advisories/new).
+        privately instead: [security advisory](https://github.com/LSUDOKO/KeeperCard/security/advisories/new).
   - type: dropdown
     id: area
     attributes:
       label: Area
       options:
-        - contracts (PaymentAnchor / AttestPayASC / decoder)
-        - engine (delegations, spend, Attestcoin pipeline)
+        - contracts (PaymentAnchor)
+        - engine (delegations, spend, KeeperHub execution)
         - server (REST API, MCP tools, OAuth)
         - dashboard
         - docs
@@ -39,7 +39,7 @@ body:
     attributes:
       label: Evidence
       description: |
-        Error output, and any on-chain hashes involved (source tx, anchor tx, verify tx).
+        Error output, and any on-chain hashes involved (payment tx, receipt anchor tx) and the KeeperHub execution id.
         Never paste a private key or a card secret.
       render: shell
   - type: input
@@ -48,9 +48,9 @@ body:
       label: Version or commit
       placeholder: "0.18.0, or the commit SHA"
   - type: checkboxes
-    id: attestcoin
+    id: keeperhub
     attributes:
-      label: Attestcoin integration
+      label: KeeperHub
       options:
-        - label: The Attestcoin integration was configured (all three required env vars set)
-        - label: "`bun run packages/engine/scripts/attestcoin-probe.ts` exits 0"
+        - label: "`KEEPERHUB_API_KEY` was set and the workflows were provisioned (`keeperhub:provision`)"
+        - label: "`bun run --cwd packages/server keeperhub:doctor` passes"
