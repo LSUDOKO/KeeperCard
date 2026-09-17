@@ -367,7 +367,6 @@ export function apiRoutes(deps: AppDeps, oauth: OAuthStore): Hono<ApiEnv> {
       pending.delete(body.prepare_id);
       // eager mint, fire-and-forget: the delegation is a two-rail card from birth
       if (deps.stripe) void deps.stripe.ensureCardForRemitCard(issued.cardId).catch(() => {});
-      // same shape for the cross-chain terms registry: useful, never blocking
       note(c, "card.issued", "card.issued", issued.cardId, { name: entry.prepared.name, lane: "client-signed" });
       return { card_id: issued.cardId, card_url: cardUrl(issued.secret), terms: issued.terms };
     }),

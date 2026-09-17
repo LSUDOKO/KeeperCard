@@ -53,7 +53,7 @@ export function keeperhubHookRoutes(deps: AppDeps): Hono {
     });
   });
 
-  // stuck-charge-recovery schedule tick (also advances the cross-chain proof pipeline)
+  // stuck-charge-recovery schedule tick
   app.post("/recovery", async (c) =>
     keeperhub.traceKeeperHub("hook", { "keeperhub.hook": "recovery" }, async () => {
       const r = await runRecovery(deps, { includeReceipts: true });

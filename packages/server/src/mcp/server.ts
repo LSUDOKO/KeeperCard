@@ -606,7 +606,6 @@ export function buildMcpServer(deps: AppDeps, card: CardRow): McpServer {
           });
           // eager mint, fire-and-forget: the sub-card is a two-rail card from birth
           if (deps.stripe) void deps.stripe.ensureCardForRemitCard(issued.cardId).catch(() => {});
-          // register the sub-card's (narrower) terms cross-chain too, same shape
           return { card_id: issued.cardId, card_url: cardUrl(issued.secret), terms: issued.terms };
         }),
     );

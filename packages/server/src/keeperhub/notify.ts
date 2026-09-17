@@ -33,8 +33,8 @@ export function notificationText(ev: EventRow, cardName: string | null): { subje
     case "proof.failed":
     case "fact.failed":
       return {
-        subject: `KeeperCard: cross-chain proof failed`,
-        message: `Cross-chain verification failed for ${card}: ${String(d.error ?? "unknown error")}. Payments are unaffected; retry from the dashboard.`,
+        subject: `KeeperCard: on-chain receipt failed`,
+        message: `The on-chain receipt failed for ${card}: ${String(d.error ?? "unknown error")}. Payments are unaffected; retry from the dashboard.`,
       };
     case "card.frozen":
       return { subject: `KeeperCard: ${card} frozen`, message: `${card} was frozen. Spends are refused until it is unfrozen.` };
