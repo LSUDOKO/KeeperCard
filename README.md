@@ -1,981 +1,336 @@
-<div align="center" >
-   <img width="592" height="421" alt="Gemini_Generated_Image_hxmu4nhxmu4nhxmu-removebg-preview" src="https://github.com/user-attachments/assets/1dffe4ac-46ce-4b46-860d-147ba50838a1" />
-</div>
-
 # KeeperCard
 
-Agentic spending cards: scoped, revocable payment delegations that any AI agent can plug in and pay with, fully instrumented with OpenTelemetry and SigNoz.
+**Spending cards for AI agents. KeeperCard decides what an agent may spend; [KeeperHub](https://keeperhub.com) moves the money.**
 
-[![SigNoz Hackathon](https://img.shields.io/badge/SigNoz-Hackathon-3021ff)](https://signoz.io)
-[![OpenTelemetry](https://img.shields.io/badge/OpenTelemetry-Instrumented-3021ff)](https://opentelemetry.io)
-[![Base Mainnet](https://img.shields.io/badge/Base-Mainnet-0052FF)](https://base.org)
-[![ERC-7710](https://img.shields.io/badge/ERC-7710-blue)](https://eips.ethereum.org/EIPS/eip-7710)
-[![Attestcoin](https://img.shields.io/badge/Attestcoin-Creditcoin%20CC3-00d18f)](https://creditcoin.org)
 [![KeeperHub](https://img.shields.io/badge/KeeperHub-Execution%20Layer-ff6b35)](https://keeperhub.com)
+[![Base Sepolia](https://img.shields.io/badge/Base-Sepolia-0052FF)](https://sepolia.basescan.org/address/0x56733223c688cce7fc65826b692b3f8521e4ab3e)
+[![ERC-7710](https://img.shields.io/badge/ERC--7710-Delegations-blue)](https://eips.ethereum.org/EIPS/eip-7710)
+[![MCP](https://img.shields.io/badge/MCP-Any%20Agent-black)](https://modelcontextprotocol.io)
+[![x402](https://img.shields.io/badge/x402-Facilitator-6f42c1)](https://www.x402.org)
 
-Issue scoped, revocable spending cards from your wallet. Any agent plugs one in and pays within your limits: no keys, no gas, dead the moment you revoke. Built on Smart Accounts (ERC-7710), **executed by [KeeperHub](https://keeperhub.com)**, pays the open web with x402, and plugs into any agent over MCP.
+Agents are probabilistic. Moving money is not forgiving. KeeperCard gives an agent a
+card — a scoped, revocable ERC-7710 delegation from your own wallet — and hands every
+transaction to KeeperHub: composed as a workflow, **dry-run without touching the chain,
+reviewed, and then that exact plan executes.** Nothing is re-derived at execution time.
 
 **Live:** [dashboard](https://keepercard-dashboard.adoranto737.workers.dev) ·
 [execution console](https://keepercard-dashboard.adoranto737.workers.dev/keeperhub) ·
-[API](https://attestpay-api.onrender.com/health)
-(the API is on Render's free tier, so the first request after idle takes ~50s to wake).
-
-> **A note on names.** The product is **KeeperCard**. Internal identifiers still read
-> `AttestPay` — the workspace scopes (`@attestpay/*`), the `ATTESTPAY_*` environment
-> variables, and the deployed Solidity contracts (`AttestPayASC`, `AttestPayCreditLine`,
-> …). Those are deliberately untouched: the contract names are immutable on-chain, and
-> renaming the env vars would invalidate every deployment's configuration for no
-> functional gain.
-
-**KeeperCard decides what an agent is allowed to spend. KeeperHub moves the money.** The authorization layer — caveats, sub-cards, revocation — is KeeperCard's. Nonce management, gas estimation, retries with backoff, MEV-aware routing and the execution audit trail are KeeperHub's. See [Execution Layer (KeeperHub)](#execution-layer-keeperhub) for the two transactions that prove it.
-
-Every confirmed payment is then **proven cross-chain onto Creditcoin** via the Attestcoin Protocol — no oracle, no bridge — building public, checkable credit history for the agent that spent. See [Cross-Chain Verification](#cross-chain-verification-attestcoin) for what that proves, and what it does not.
+[API health](https://attestpay-api.onrender.com/health) — the API is on a free tier, so
+the first request after idle takes ~50s to wake.
 
 ---
 
-## Table of Contents
-
-- [The Idea](#the-idea)
-- [How a Payment Works](#how-a-payment-works)
-- [Agent Tools](#agent-tools)
-- [Connecting a Card to an Agent](#connecting-a-card-to-an-agent)
-- [Execution Layer (KeeperHub)](#execution-layer-keeperhub)
-- [Cross-Chain Verification (Attestcoin)](#cross-chain-verification-attestcoin)
-- [Credit Lines, Disputes and the Passport](#credit-lines-disputes-and-the-passport)
-- [Webhooks, Teams and the Audit Log](#webhooks-teams-and-the-audit-log)
-- [SDK](#sdk)
-- [Architecture](#architecture)
-- [Contracts](#contracts-base-mainnet)
-- [Observability (SigNoz)](#observability-signoz)
-- [Getting Started](#getting-started)
-- [Tests](#tests)
-- [Environment Variables](#environment-variables)
-- [Security Model](#security-model)
-- [Demo Merchant](#demo-merchant)
-- [Documentation](#documentation)
-
----
-
-## The Idea
-
-Agents need to spend money. Handing an agent your private key is unsafe; funding a standalone agent wallet loses custody and limits. KeeperCard applies the model the card industry settled on decades ago to agents:
-
-- **Your wallet is the account.** Funds never leave it until the moment of payment.
-- **The card is a delegation.** A scoped ERC-7710 delegation, signed by your wallet, wrapped in caveats: budget per period, per-transaction max, merchant allowlist, expiry, usage count.
-- **The agent holds the card, not the money.** The agent gets an MCP endpoint URL. Behind it, the card can spend only what its terms allow.
-- **Revoke kills it instantly.** Freeze or revoke a card (or its whole sub-card tree) and every payment from it stops, server-side immediately and on-chain underneath.
-
-```
-your wallet (EIP-7702 smart account)
-   +-- card  ($25/week, expires Jul 6)          <- root delegation, signed by you
-       +-- agent A plugs it in over MCP
-       +-- sub-card ($1/week, one merchant)     <- redelegation, narrower terms
-           +-- sub-agent B plugs it in
-```
-
-**Live:**
-
-| Surface | URL |
-|---|---|
-| Landing page (`/`) + dashboard (`/app`) | deploy your own |
-| Docs (the full reference, in-app) | deploy your own |
-| Demo merchant (accepts the cards' Visas) | deploy your own |
-| API + MCP endpoint | deploy your own |
-| Source (this repo) | https://github.com/LSUDOKO/KeeperCard |
-| Demo video | [YouTube](https://vimeo.com/1214671814?share=copy&fl=sv&fe=ci) |
-| Docs | https://glass-pay.vercel.app/docs |
-| Demo Link | https://glass-pay.vercel.app |
-| Medium Blog | https://medium.com/@adoranto737/i-gave-an-ai-agent-a-credit-card-then-watched-every-move-it-made-with-signoz-d6b6cdd9d5b8?sharedUserId=adoranto737 |
-
-Everything runs on Base mainnet with real USDC; the only simulated leg is the Visa rail (Stripe test-mode Issuing), labeled honestly wherever it appears.
-
----
-
-## How a Payment Works
-
-1. You sign in to the dashboard (Privy embedded wallet, Google login) and issue a card with terms, set by hand in the composer or drafted from a plain-language request by the Venice-powered NL compiler (the model only names tokens, protocols, and merchants; the server resolves every address from its own verified registry, and you still review and sign the draft).
-2. The dashboard compiles the terms into on-chain caveats (delegation-framework enforcers). Your wallet signs the delegation in the browser; the server stores it alongside a fresh agent key that holds nothing.
-3. You hand the card URL to any agent (one `claude mcp add`, a Cursor deeplink, a pasted connector URL).
-4. When the agent calls `pay`, the server validates the terms, dry-runs the redemption through KeeperHub, and then executes that exact reviewed plan: gasless, on Base, settled in USDC from your wallet. (`ATTESTPAY_EXECUTOR=1shot` still selects the legacy 1Shot relayer as a rollback lane.)
-5. Every charge lands in the card's ledger with memo, fee, and tx hash.
-
-The agent never sees a private key, never holds a balance, and never needs ETH. The first spend even deploys your wallet's 7702 smart-account code automatically in the same transaction.
-
----
-
-## Agent Tools
-
-MCP tools served over Streamable HTTP. The exact set a card exposes matches its capabilities, so the tool list itself is the permission surface (a pay-only card never sees `execute`; a contract-only card never sees `pay`):
-
-| Tool | Purpose |
-|---|---|
-| `card` | Live state: remaining budget, terms, expiry, recent charges, sub-cards |
-| `pay` | Send USDC on Base within the card's limits; blocks until confirmed on-chain |
-| `paid_fetch` | Fetch a URL; on HTTP 402 (x402), pay automatically and return the content |
-| `fiat_pay` | Buy over Visa rails (simulated: Stripe test-mode Issuing) against the same budget; with settlement on, the receipt carries the on-chain tx |
-| `card_credentials` | Reveal the card's test-mode virtual Visa (number/expiry/cvc) so the agent can check out at a merchant; every card auto-links one on first need |
-| `execute` | Run scoped contract calls (e.g. approve + swap, stake, mint) atomically in one redemption; only on cards with contract scope |
-| `issue_subcard` | Mint a tighter child card for a sub-agent; pay caps and contract scope must both nest inside the parent's |
-| `revoke_subcard` | Instantly kill a sub-card (and its descendants), server-side; for on-chain permanence, revoke the root card or nuke |
-| `verify_payment` | Where a payment has reached in the Attestcoin cross-chain proof pipeline |
-| `payment_receipt` | The full three-chain receipt for one payment, with an explorer link per leg and a plain statement of what the proof establishes |
-| `credit_score` | The card's cross-chain-verified payment history and credit standing on Creditcoin |
-| `cross_chain_status` | Attestcoin protocol health: attestation lag and proof-queue depth |
-| `credit_lines` | Credit lines lenders have opened to this card's funding account: limit, drawn, repaid, available, owed |
-| `draw_credit` | Draw USDC from a line into the funding account; the lender's funding card pays, within its own terms |
-| `repay_credit` | Pay a line down from this card; full repayment (drawn + interest) marks it repaid on Creditcoin |
-| `dispute_payment` | Contest a confirmed payment this card made; proven into `AttestPayLedger` where configured |
-| `credit_passport` | The account's composed on-chain standing with a signed, portable credential |
-
-The cross-chain and credit tools appear only when their contracts are configured — the tool list is the capability surface, so a card is never offered a tool that can only answer "not configured".
-
-Refusals are typed (`over_period_limit`, `merchant_not_allowed`, `price_exceeds_max`, `per_trade_exceeded`, `exceeds_parent_terms`, `target_not_allowed`, `method_not_allowed`, ...) so agents can relay them honestly instead of guessing.
-
-**Contract cards.** A card can be scoped to specific contract targets + method selectors instead of (or alongside) a USDC budget. The agent calls `execute` with either `{target, method, args}` (the server ABI-encodes) or `{target, data}` raw calldata for tuple/array/multicall methods like Uniswap `exactInputSingle`. For a call that needs a recipient (e.g. `exactInputSingle`'s `recipient`), the `card` tool surfaces the card's on-chain `account` (the root delegator that holds the USDC and receives any output tokens), so the agent routes a swap's output there itself. Targets and selectors outside the card's declared scope are refused before anything reaches the chain, and the on-chain `allowedTargets`/`allowedMethods` enforcers check the same scope again. Method signatures are normalized to their canonical form (`uint` -> `uint256`) so the encoder, the raw-data selector check, and the on-chain enforcer all agree. Safety on contract cards is the target/method allowlist plus `maxUses` and `expiry` (contract calls are not USDC-metered); pair contract scope with a `pay` cap in one composite card when you want both. A contract card can also carry an allowance token list (`contract.tokens`: the only tokens it may `approve`, every approval exact-amount pinned on-chain) and a per-trade ceiling (`contract.perTradeMax`, capping each USDC approval; v1 enforces the ceiling on USDC legs only). Both narrow subset-only on sub-cards. Calls carry no native ETH value in v1 (the carved leaf caps value at 0 on-chain); payable-with-value is a planned extension.
-
----
-
-## Connecting a Card to an Agent
-
-Three lanes. The first two carry a per-card credential directly; the third is OAuth, where the agent never holds the card secret.
-
-```bash
-# Lane A: secret in the URL path (works everywhere, treat the URL as a password)
-claude mcp add --transport http remit https://<host>/c/<card-secret>/mcp
-
-# Lane B: bearer header
-claude mcp add --transport http remit https://<host>/mcp \
-  --header "Authorization: Bearer <card-secret>"
-```
-
-Lanes A and B work in Cursor, VS Code, Gemini CLI, Windsurf, claude.ai custom connectors, or any MCP client that speaks Streamable HTTP. Rotate the secret any time from the dashboard; the old URL dies instantly.
-
-Per-harness one-liners for Lane A:
-
-```bash
-codex mcp add remit --url https://<host>/c/<card-secret>/mcp
-openclaw mcp add remit --url https://<host>/c/<card-secret>/mcp --transport streamable-http  # flag required: omitting it defaults to SSE
-hermes mcp add remit --url "https://<host>/c/<card-secret>/mcp"
-gemini mcp add -t http remit https://<host>/c/<card-secret>/mcp
-goose session --with-streamable-http-extension "https://<host>/c/<card-secret>/mcp"
-amp mcp add remit https://<host>/c/<card-secret>/mcp
-droid mcp add remit https://<host>/c/<card-secret>/mcp --type http
-```
-
-claude.ai web: Customize -> Connectors -> Add custom connector -> paste the card URL. ChatGPT Developer Mode: create a connector with the card URL as No Authentication, or use Lane C for a real auth story.
-
-**Lane C: OAuth 2.1 (card-picker consent).** Add the bare endpoint with no credential:
-
-```bash
-claude mcp add --transport http remit https://<host>/mcp
-```
-
-The client discovers the OAuth lane (RFC 9728 protected-resource metadata on the `401`), registers itself (Dynamic Client Registration), and opens a browser. You sign in with your existing dashboard login and pick which card to grant. The agent receives a short-lived, card-scoped, independently revocable access token, never the raw card secret. This is the lane OAuth-only clients such as ChatGPT require; it also works in Claude Code, claude.ai, Cursor, VS Code, Codex, Gemini CLI, Goose, opencode, Amp, and Factory Droid. Clients that complete OAuth out-of-band read the authorization code straight off the consent success screen: OpenClaw finishes with `openclaw mcp login remit --code <code>` (it runs no callback listener), and headless Hermes uses its paste-back flow the same way. The server is a self-hosted OAuth authorization server (public clients, PKCE S256, rotating refresh tokens); revoking the card kills every token issued for it.
-
----
-
-## Execution Layer (KeeperHub)
-
-KeeperCard used to move money with its own machinery: a 1Shot relayer call, an interval
-reconcile sweep, a fiat settlement timer, and a background anchor worker. All of that is
-bespoke infrastructure for a problem someone else has already solved properly. It is now
-[KeeperHub](https://keeperhub.com)'s job.
-
-The split is the whole point:
+## The split
 
 | | Owns |
 |---|---|
-| **KeeperCard** | *What may be spent* — ERC-7710 caveats, sub-cards, budgets, freeze/revoke/nuke, the NL compiler |
-| **KeeperHub** | *Moving it* — nonce management, gas estimation, retries with backoff, private routing, Turnkey signing, execution audit trail |
+| **KeeperCard** | *What may be spent* — caveats, budgets, sub-cards, freeze / revoke / nuke, the MCP surface an agent plugs into |
+| **KeeperHub** | *Moving it* — dry runs, nonce management, gas estimation and sponsorship, retries, Turnkey signing, workflow history, chain reads, price feeds, risk |
 
-Agents never improvise a payment. A workflow is composed, **dry-run without touching the
-chain**, reviewed, and then that exact reviewed plan executes. The calldata is hashed at
-dry-run time and the digest is carried into execution, so the bytes that run are the
-bytes that were reviewed — nothing is re-derived at execution time.
+Before this integration KeeperCard moved money with its own machinery: a relayer call, an
+interval reconcile sweep, a settlement timer and a background worker. That is bespoke
+infrastructure for a problem someone else has already solved properly.
 
-### Verified transactions
+```
+your wallet (EIP-7702 smart account)
+   └─ card  ($25/week, expires Oct 17)            ← root delegation, signed by you
+       ├─ agent A plugs it in over MCP
+       └─ sub-card ($1/week, one merchant)        ← redelegation, narrower terms
+           └─ sub-agent B plugs it in
 
-Both executed through KeeperHub, both independently checked against a public RPC rather
-than taken from KeeperHub's own reply.
+agent ── keeperhub_dry_run ──▶ KeeperCard checks the card's terms
+                               KeeperHub simulates the exact calldata   (no chain touched)
+      ◀── plan_id, gas, risk ──
+agent ── pay(plan_id) ───────▶ KeeperHub workflow redeems the delegation (one atomic tx)
+                               KeeperHub writes the on-chain receipt    (PaymentAnchor)
+                               KeeperHub's Event trigger sees the receipt and records it
+```
 
-| What | Chain | Transaction |
-|---|---|---|
-| **Card payment under an ERC-7710 delegation** — the full product path | Base Sepolia | [`0x2e52bc36…a88ca755`](https://sepolia.basescan.org/tx/0x2e52bc363c82874b3ac085c0623f6a1ff62b10f79140d16c217b7a88a88ca755) |
-| **USDC transfer** — real value moved | Base Sepolia | [`0x88a28cef…d945eb9`](https://sepolia.basescan.org/tx/0x88a28cef9cec59c8a7a298507ac2de19eac20e42b589dfb9734da9f15d945eb9) |
-| **`PaymentAnchor.anchorPayment`** — cross-chain proof, leg 1 | Ethereum Sepolia | [`0x3eafda4b…c694a2f8`](https://sepolia.etherscan.io/tx/0x3eafda4b16c341b20de24d6868a4646c54881ab4f86a68941c5b69c3c694a2f8) |
+---
 
-The USDC transfer moved **1.50 USDC**, and the balances confirm it: the org wallet went
-`20.00 → 18.50` and the recipient `0.00 → 1.50`. The anchor flipped
-`isAnchored(84532, txHash)` from `false` to `true`. Both receipts report `status: 0x1`,
-and in both cases the emitting contract — not `receipt.to` — is the one that matters,
-because gas sponsorship wraps the call (see below).
+## How much of KeeperHub this uses
 
-Full method, including what each check rules out:
+Not a wrapper around one endpoint. Every row is wired into the product and was exercised
+against the live API.
+
+| KeeperHub surface | What KeeperCard does with it |
+|---|---|
+| **Workflows API** — create, update, list, execute, status, step logs, run history | Nine workflows defined as code and provisioned by name; the server resolves them **by name at boot**, so a deployment needs no per-workflow configuration |
+| **Dry run** — `execute/contract-call` with `simulate: true` | Every payment is simulated from the wallet that will execute it. The calldata is hashed at dry-run time and the digest is carried into execution: the bytes that run are the bytes that were reviewed |
+| **Manual trigger** | `card-payment-redemption`, `x402-settlement`, `fiat-settlement`, `guarded-card-payment`, `payment-receipt-anchor` |
+| **Schedule trigger** | `treasury-monitor` (every 10 min), `market-guard` (hourly) |
+| **Event trigger** | `receipt-event-watcher` fires on every `PaymentAnchored` event — the chain starts the run, not KeeperCard |
+| **Block trigger** | `fee-income-watcher` samples collected fees every 900 blocks |
+| **`Condition` node** | Gates the write in `guarded-card-payment`; trips low-gas and depeg alarms |
+| **`web3/assess-risk`** | Read on every dry run, and enforced *inside* `guarded-card-payment` |
+| **`web3/write-contract`** | `DelegationManager.redeemDelegations`, `PaymentAnchor.anchorPayment` |
+| **`web3/query-events`** | Reads receipts back from the chain to reconcile against KeeperCard's own ledger |
+| **`web3/check-balance`, `check-token-balance`** | Live gas and USDC of the wallets payments depend on |
+| **`check-and-execute`** | A funding floor on the settlement sweep: the read and the guarded write in one request |
+| **Protocol actions — Chainlink** | USDC/USD and ETH/USD reference feeds; the depeg guard |
+| **Gas sponsorship** | Every transaction below was sponsored; the wallet held 0 ETH for the first of them |
+| **Idempotency keys** | Derived from the calldata digest, so a retried send can only replay |
+| **`/features`, `/action-schemas`, `/chains`** | Plan probe before provisioning; the schema source of truth; chain support check |
+
+---
+
+## The workflows
+
+Defined in [`packages/engine/src/keeperhub/workflows.ts`](packages/engine/src/keeperhub/workflows.ts),
+provisioned with `bun run --cwd packages/server keeperhub:provision` (idempotent: it
+creates or updates by name, so ids never change).
+
+| Workflow | Trigger | Nodes | Status |
+|---|---|---|---|
+| `card-payment-redemption` | Manual | Redemption Request → Redeem Delegations | live · executed on-chain |
+| `guarded-card-payment` | Manual | Request → **Assess Risk** → **Risk Acceptable?** → Redeem | live · executed on-chain |
+| `payment-receipt-anchor` | Manual | Payment Confirmed → Anchor Payment | live · executed on-chain |
+| `receipt-event-watcher` | **Event** | `PaymentAnchored` → Recent Receipts | live · **fired by the chain** |
+| `treasury-monitor` | **Schedule** | Org gas → Org USDC → Sponsor gas → Gas Low? | live · **fired by KeeperHub's cron** |
+| `market-guard` | **Schedule** | USDC/USD → ETH/USD → Below Peg? | live · executed |
+| `fee-income-watcher` | **Block** | Every N blocks → Fee Balance | live · executed |
+| `x402-settlement` | Manual | Redemption Request → Redeem Delegations | live · not yet exercised on-chain |
+| `fiat-settlement` | Manual | Redemption Request → Redeem Delegations | live · not yet exercised on-chain |
+| `stuck-charge-recovery` | Schedule | schedule → callback | needs KeeperHub Pro |
+| `fiat-settlement-sweep` | Schedule | schedule → callback | needs KeeperHub Pro |
+| `notification-relay` | Manual | event → Discord / Telegram / email | needs a notification integration |
+
+The last three are honest absences, not bugs. `HTTP Request` is a Pro action and KeeperHub
+rejects a whole workflow containing one with `402 upgrade_required`; two of these are
+nothing *but* a schedule plus a callback, so on the free plan they cannot exist and
+KeeperCard runs those two timers in-process instead — and says so at boot.
+
+### `guarded-card-payment`, in detail
+
+The ordinary payment reads KeeperHub's risk verdict during the dry run, where it is
+advisory. For payments at or above `KEEPERHUB_GUARDED_MIN_USDC` the check moves **inside
+the workflow**: the write node is only reachable through the Condition's `true` handle.
+
+```
+Redemption Request ─▶ Assess Risk ─▶ Risk Acceptable (score < 90) ─true─▶ Redeem Delegations
+```
+
+A run that ends without broadcasting is not a payment. KeeperHub reports such a run as
+`success` — the Condition did its job — so KeeperCard checks for a transaction hash and
+books the charge as refused rather than confirmed.
+
+---
+
+## Verified transactions
+
+All executed through KeeperHub on Base Sepolia, all checked against a public RPC rather
+than taken from KeeperHub's reply. Method and what each check rules out:
 [`docs/keeperhub/proof-of-execution.md`](docs/keeperhub/proof-of-execution.md).
 
-### Live workflows
+| What | Transaction |
+|---|---|
+| Card payment, `card-payment-redemption` workflow (run `7pzmtv7kr2ar9kpwcua08`) | [`0x54b1651c…f547b406`](https://sepolia.basescan.org/tx/0x54b1651ca19d7c557c028ef9d22949b609df4cff3dbdb3c4f3857e26f547b406) |
+| Card payment, `card-payment-redemption` | [`0x3c20c3d1…fe4d986b`](https://sepolia.basescan.org/tx/0x3c20c3d19a49a806bb95ecc9d3874cd73084368c3c22c54616d24205fe4d986b) |
+| ↳ its on-chain receipt, `payment-receipt-anchor` | [`0xaee6c910…bd55531e`](https://sepolia.basescan.org/tx/0xaee6c91062c90a332881ebf35780c2470a72e85ffd8bda78239d3465bd55531e) |
+| Card payment, **`guarded-card-payment`** (risk check inside KeeperHub) | [`0xc9368f9e…02fe0869`](https://sepolia.basescan.org/tx/0xc9368f9e49af1fc387f9ff2483cbb733ca5a53caacbc65fdd9a9913802fe0869) |
+| ↳ its on-chain receipt | [`0x9ac752e2…0f50b24219`](https://sepolia.basescan.org/tx/0x9ac752e24178a9604c122c4d61dec1cc48027bb7e5c3a9f66f41a70f50b24219) |
+| Direct USDC transfer, dry-run then execute | [`0x88a28cef…d945eb9`](https://sepolia.basescan.org/tx/0x88a28cef9cec59c8a7a298507ac2de19eac20e42b589dfb9734da9f15d945eb9) |
 
-Provisioned from code (`packages/engine/src/keeperhub/workflows.ts`) by
-`bun run --cwd packages/server keeperhub:provision`, which creates or updates by name, so
-ids are stable.
+Each card payment is **two USDC transfers in one atomic transaction** — the merchant
+payment and the gas-fee leg — redeemed under the card's delegation, with the caveats
+enforced on-chain by the DelegationManager.
 
-| Workflow | Id | Replaces |
-|---|---|---|
-| `card-payment-redemption` | `o6iijkcr7tj83nj8ufbx6` | the 1Shot relayer call in `spend.ts` |
-| `attestcoin-cross-chain-proof` | `625tzb9kz8wfg3okjjlch` | the `attestcoin_sweep` state machine (leg 1) |
-| `credit-line-draw-repay` | `b8e0j3ghqajod6ow0hau5` | ad-hoc credit execution |
+`PaymentAnchor`: [`0x56733223c688cce7fc65826b692b3f8521e4ab3e`](https://sepolia.basescan.org/address/0x56733223c688cce7fc65826b692b3f8521e4ab3e) (Base Sepolia).
 
-### Agent tools
+---
+
+## Guardrails
+
+Every guard here follows one rule: **an advisory signal must never silently become a
+gate, and "unknown" is never reported as zero, healthy, or a reason to refuse.**
+
+- **Dry-run gate.** `pay` refuses a digest that was not dry-run within the plan's TTL.
+  On by default; this is the whole point.
+- **Depeg guard** (Chainlink, through KeeperHub). Cards are written in USDC. When
+  USDC/USD reads below `KEEPERHUB_DEPEG_FLOOR` (default 0.98) the dry run refuses with a
+  typed `usdc_depegged`. A feed that *cannot be read* refuses nothing — cards are not
+  frozen because an oracle blinked.
+- **Risk read.** KeeperHub's assessor is fail-closed: when its AI backend is down it
+  answers `high`/70 with a factor saying the analysis failed. Gating on that would refuse
+  every payment whenever an upstream service is down, so the client marks it
+  `available: false` and the agent is told to report it as unavailable, not as a finding.
+- **Settlement funding floor** (`check-and-execute`). The balance read and the guarded
+  write happen in one KeeperHub request, so the balance cannot move between deciding and
+  acting. If the guard cannot be evaluated, settlement proceeds.
+- **Chain attestation** (`query-events`). Every other surface reports what KeeperCard
+  *believes*. `GET /api/keeperhub/attestation` reads the `PaymentAnchored` events the
+  chain holds and reconciles them with the ledger into `matched`, `unwitnessed` (no event
+  in the scanned window — bounded, so never stated as "did not happen") and `unrecorded`
+  (on-chain with no local row).
+- **Limits enforced twice.** Server-side at call time, as typed refusals; and on-chain by
+  caveat enforcers at redemption.
+
+---
+
+## What an agent sees
+
+An agent connects to a card over MCP. Tools are registered conditionally: a tool that
+could only answer "not configured" is never offered.
 
 | Tool | Purpose |
 |---|---|
-| `keeperhub_dry_run` | Compose and dry-run a payment through KeeperHub without touching the chain; returns the exact plan that would execute, as a `plan_id`, plus a risk read on the calldata |
-| `keeperhub_execution_status` | Status and step logs for an execution, scoped to the caller's card subtree |
-| `keeperhub_audit_trail` | KeeperHub's execution history merged with KeeperCard's own charge ledger |
-| `dry_run_draw` | The same review-then-execute flow for a credit draw |
+| `card` | Terms, remaining budget, recent charges. Call it first |
+| `keeperhub_dry_run` | Compose and simulate a payment through KeeperHub; returns a `plan_id`, gas, and the risk read |
+| `pay` | Executes a reviewed `plan_id` byte-for-byte (or settles an x402 requirement) |
+| `keeperhub_execution_status` | Where a payment is in KeeperHub, with per-node step logs |
+| `keeperhub_audit_trail` | KeeperHub's execution record merged with KeeperCard's charge ledger |
+| `payment_receipt` | The on-chain receipt for a payment: both transactions, both linked |
+| `treasury_status` | Live through KeeperHub: executing wallet's gas and USDC, USDC/USD, ETH/USD |
+| `issue_subcard` / `revoke_subcard` | A narrower child card for a sub-agent; kill it and its subtree |
+| `paid_fetch` | Fetch an HTTP resource and pay its 402 challenge |
+| `execute`, `fiat_pay`, `card_credentials`, `shop_*` | Offered when the card's terms and the deployment support them |
 
-`pay` accepts a `plan_id` from `keeperhub_dry_run` and executes that plan byte-for-byte;
-`draw_credit` does the same with a `plan_id` from `dry_run_draw`.
-
-### Risk, guards and attestation
-
-Three further KeeperHub surfaces carry their weight here, and each is wired with the same
-rule: an advisory signal must never silently become a gate.
-
-- **Risk read on every dry run** (`web3/assess-risk`). The verdict — level, score, decoded
-  function, reasoning — rides back on the plan. KeeperHub's assessor is *fail-closed*: when
-  its AI backend is unavailable it answers `high`/70 with a factor saying the analysis
-  failed. Gating on that would refuse every payment whenever an upstream service is down, so
-  the client marks it `advisory` and the agent is told to report it as unavailable rather
-  than as a finding. A real `high` is surfaced for confirmation; a fallback is not.
-- **A funding floor on the settlement sweep** (`check-and-execute`). The balance read and
-  the guarded write happen in one KeeperHub request, so the balance cannot move between
-  deciding and acting. Below `ATTESTPAY_SETTLE_MIN_USDC_ATOMS` the sweep is skipped instead
-  of burning gas on redemptions that can only revert. If the guard cannot be evaluated the
-  sweep proceeds — a balance oracle being down must not stop settlement.
-- **Chain attestation** (`web3/query-events`, `GET /api/keeperhub/attestation`). Every other
-  surface reports what KeeperCard *believes*. This one reads the `PaymentAnchored` events the
-  chain actually holds and reconciles them against the local records, in three buckets:
-  `matched`, `unwitnessed` (no event in the scanned window — bounded, so never stated as
-  "did not happen") and `unrecorded` (on-chain with no local row, which is the direction
-  worth investigating). The dashboard shows all three.
-
-### Gas sponsorship, and why receipts look odd
-
-The org wallet held **0 ETH on every chain** when both transactions above ran.
-KeeperHub's gas sponsorship paid the fees through Turnkey's Gas Station, so the receipt's
-`from` is a relayer and its `to` is a sponsorship wrapper — not our wallet, not the target
-contract. That is expected on a sponsored route, and it is why verification reads the
-**log emitter** and the resulting **state change** instead of trusting `receipt.to`.
-
-Sponsorship covers the *fee only*. The assets a transaction moves always come from the
-wallet itself, which is why the USDC demo needed a funded wallet and the anchor did not.
-
-### Known limitations
-
-Stated plainly, because the brief asks what is unfinished:
-
-- **Creditcoin CC3 is not a KeeperHub chain.** `GET /api/chains` returns 24 chains and
-  none is Creditcoin. Leg 2 of the cross-chain proof (`AttestPayASC.verifyPayment`) stays
-  on KeeperCard's direct RPC path. This was anticipated in the design, not discovered late:
-  see `packages/engine/src/keeperhub/anchor.ts` and `contracts/src/PaymentAnchor.sol`.
-- **`HTTP Request` is a Pro-plan action.** On the free plan a workflow containing one is
-  rejected wholesale with `402 upgrade_required`. The callbacks were only ever a *nudge* —
-  the hook handler always re-read the execution from KeeperHub's API before touching the
-  ledger — so KeeperCard polls for the same record instead. Same source of truth, one extra
-  round trip. `stuck-charge-recovery` and `fiat-settlement-sweep` are schedule-plus-callback
-  and nothing else, so on a free plan they cannot exist as KeeperHub workflows at all;
-  KeeperCard keeps its own timers for those two and says so at boot.
-- **Free-tier persistence.** Render's free plan has no disk, so `/data` resets on every
-  deploy and whenever the instance sleeps — which loses cards, delegations and the proof
-  queue. Attach a disk for anything beyond a demo (`render.yaml` has the stanza).
-
-### Health check
+### Connecting a card
 
 ```bash
-bun run --cwd packages/server keeperhub:doctor
+# Lane A: secret in the URL path (works everywhere; treat the URL as a password)
+claude mcp add --transport http keepercard https://<host>/c/<card-secret>/mcp
+
+# Lane B: bearer header
+claude mcp add --transport http keepercard https://<host>/mcp \
+  --header "Authorization: Bearer <card-secret>"
+
+# Lane C: OAuth 2.1 — the agent never holds the card secret
+claude mcp add --transport http keepercard https://<host>/mcp
 ```
 
-Checks the key, org wallet, chain support, wallet gas, every configured workflow, the
-simulator, and spend-cap headroom. Exits non-zero on anything that would break a payment.
-
----
-
-## Cross-Chain Verification (Attestcoin)
-
-Every confirmed payment is proven onto **Creditcoin CC3 testnet** using the Attestcoin
-Protocol, turning an AI agent's spending into public, append-only credit history that
-any Creditcoin contract can read without trusting KeeperCard.
-
-Full technical write-up: **[docs/attestcoin-integration.md](docs/attestcoin-integration.md)**
-
-### What the proof establishes — and what it does not
-
-This is stated first because the honest version is narrower than "every payment is
-cryptographically verified", and the agent-facing `payment_receipt` tool returns both
-halves verbatim so a model relaying it cannot overstate it.
-
-**Proven, trustlessly:** that a `PaymentAnchored` record with *exactly these field
-values* was included in a block attested by the Attestcoin attestor network. The Block
-Prover precompile checks a Merkle inclusion proof and a block-continuity proof in the
-same Creditcoin transaction that records the result, and `AttestPayASC` decodes the
-payment's fields **out of the proven transaction bytes** — so no relayer, KeeperCard's
-server included, can alter a value in flight.
-
-**Not proven:** that the underlying Base payment happened. KeeperCard's server writes
-the anchor, so that hop is the server's own attestation. Two things keep it
-accountable: every anchor records the Base `sourceTxHash` so anyone can check the
-payment independently, and it records `anchoredBy` — with the ASC crediting only its
-configured `trustedAnchorer`.
-
-So a verified payment means: *KeeperCard asserted this payment on an attested chain, and
-that assertion is now cryptographically immutable, publicly timestamped, attributable
-to a named anchorer, and checkable against the Base transaction it names.* Stronger
-than a private database row; weaker than proving the transfer itself.
-
-### Why the anchor is on Ethereum Sepolia, not Base
-
-Attestcoin on CC3 testnet attests exactly two source chains. Check it yourself:
-
-```bash
-cast call 0x0000000000000000000000000000000000000fd3 "get_supported_chains()" \
-  --rpc-url https://rpc.cc3-testnet.creditcoin.network \
-| xargs cast decode-abi "get_supported_chains()((uint64,uint64,bytes,uint8)[])"
-# [(3, 1, "Ethereum", 1), (1, 11155111, "Sepolia ethereum", 1)]
-```
-
-Base is not among them, so a Base transaction cannot be proven into Creditcoin at all.
-KeeperCard's payments execute on Base (the ERC-7710 stack and the 1Shot relayer only
-exist there), so `PaymentAnchor` is deployed on Ethereum Sepolia (`chainKey = 1`) and
-records the Base payment's facts; that anchoring transaction is what gets proven.
-
-The server reads that registry at boot rather than trusting a table. With
-`ATTESTPAY_ATTESTCOIN_CHAIN_KEY=auto` it adopts whichever key matches the source RPC's
-chain, refuses loudly if that chain is not attested, and reports in `/api/attestcoin/health`
-whether the **payment** chain (Base) is attested yet. The day it is, pointing the source
-RPC at Base and deploying the anchors there is the whole migration — and the "not
-proven" caveat above disappears.
-
-### The flow
-
-```
-Base            agent pays USDC ──▶ charge confirmed
-                                         │ onChargeConfirmed (enqueue, ~1ms)
-                                         ▼
-                            attestcoin_proofs (sqlite state machine)
-                            pending → anchoring → anchored → attested → proving → verified
-                                         │
-Eth Sepolia     PaymentAnchor.anchorPayment(...) ──▶ PaymentAnchored event
-                                         │
-                 Attestcoin attestors reach consensus (~8 min, measured)
-                 prover API → { headerNumber, txBytes, merkleProof, continuityProof }
-                                         │
-Creditcoin      AttestPayASC.verifyPayment(height, txBytes, merkle, continuity)
-                  ├─ 0x0FD2 BlockProver.verify(...)        proof checked on-chain
-                  ├─ decode receipt logs from PROVEN bytes  facts bound to the proof
-                  ├─ require anchoredBy == trustedAnchorer
-                  └─ store VerifiedPayment · update AgentCredit · check CardTerms
-```
-
-`pay` never waits for any of this. Attestation takes minutes, so the pipeline is a
-background worker over persisted state: `spend()` only enqueues, via a new
-`onChargeConfirmed` hook that every confirmation path feeds (pay, execute, fiat
-settlement, and the reconcile sweep alike).
-
-### The one design decision that matters
-
-`verifyPayment` takes **the proof and nothing else**.
-
-The natural-looking alternative — `verifyPayment(proof, cardId, amount, from, ...)` —
-is unsound, and it is worth being explicit about why. The proof and the facts would be
-independent, so a valid proof of *any* attested transaction would let a caller staple
-arbitrary payment data to it and mint unlimited "verified" credit history from one real
-proof. Here the facts cannot be separated from the proof, because the facts *are* the
-proven bytes. Three tests pin it down: an impostor anchor's event inside a valid proof
-records nothing, an untrusted anchorer is refused, and a proven-but-reverted
-transaction is not a payment.
-
-### Contracts
-
-| Contract | Chain | Role |
-|---|---|---|
-| `PaymentAnchor.sol` | Ethereum Sepolia | Emits `PaymentAnchored` on an attested chain; guards double-anchoring |
-| `AttestPayASC.sol` | Creditcoin CC3 | Verifies proofs, decodes payments, maintains credit + terms registry |
-| `ProvenTxDecoder.sol` | library | Recovers receipt logs from Attestcoin-encoded transaction bytes |
-| `IBlockProver.sol` | interfaces | The real precompile ABIs (`0x0FD2` prover, `0x0FD3` chain info) |
-| `FactAnchor.sol` | Ethereum Sepolia | Anchors credit draws/repayments, disputes and card revocations |
-| `ProvenFacts.sol` | abstract | The shared proof-consuming base every fact consumer inherits |
-| `AttestPayCreditLine.sol` | Creditcoin CC3 | EIP-712 dual-signed credit lines; proven draw/repay state machine |
-| `AttestPayLedger.sol` | Creditcoin CC3 | Proven disputes and revocation timestamps |
-| `AttestPayGuarantee.sol` | Creditcoin CC3 | CTC bonds behind a borrower, slashed on a proven default |
-| `CreditPassport.sol` | Creditcoin CC3 | One composed read of everything above, score computed on-chain |
-
-Foundry project in [`contracts/`](contracts/). `forge test` — 111 tests.
-
-**Deployed (testnet):**
-
-| Chain | Contract | Address |
-|---|---|---|
-| Ethereum Sepolia | `PaymentAnchor` | [`0x881c…2121`](https://sepolia.etherscan.io/address/0x881c55745372DfCB7dEC9B13F499b167164e2121) |
-| Creditcoin CC3 | `AttestPayASC` | [`0x881c…2121`](https://creditcoin-testnet.blockscout.com/address/0x881c55745372DfCB7dEC9B13F499b167164e2121) |
-
-The same address on both chains is one deployer at nonce 0 on each, not a copy-paste
-slip. `AttestPayASC` binds `blockProver` to the canonical precompile `0x…0FD2`, and its
-`trustedAnchorer` is the only address whose anchors it will credit. See
-[`docs/attestcoin-integration.md`](docs/attestcoin-integration.md#deployed-addresses-cc3-testnet-2026-09-12)
-for the immutables read back off-chain and for the CC3 deployment caveat (`forge script`
-cannot simulate against the Creditcoin RPC).
-
-### Agent credit history
-
-Each verified payment updates an `AgentCredit` record against the card tree's **root
-funding account** (sub-cards spend from their root's account, so that is where history
-belongs): payment count, verified volume, first and last payment, and terms compliance.
-
-Compliance is tracked as `withinTermsPayments` over `termsCheckedPayments`, not over
-`totalPayments` — so **a card with no registered terms does not score a free 100%**.
-With nothing to comply with, a payment is neither credited nor penalised, and terms
-registered after a payment are not applied retroactively.
-
-The letter grade is a published formula over three capped inputs — payment count (≤40),
-verified volume (≤30), history length in days (≤30), scaled by the within-terms rate
-where terms exist. It is a readable summary of public on-chain facts, **not a risk
-model**, and it is labelled that way everywhere it appears, including in the tool
-output.
-
-### Observability
-
-The pipeline is slow and multi-hop, so each stage is separately traced — "it didn't
-verify" is useless on its own; the question is which hop stalled.
-
-Spans `attestcoin.anchor`, `.proof_generation`, `.proof_submission`, `.register_terms`,
-`attestcoin_sweep`. Metrics include `attestpay.attestcoin.attestation_wait_seconds`,
-`.proof_generation_seconds`, `.proof_submission_seconds`, `.end_to_end_seconds` and
-`.attestation_lag_blocks`, plus counters for anchors written, proofs generated,
-verified, and failed (tagged by stage).
-
-### Verify it against the live protocol
-
-One read-only command, no gas, no funded key:
-
-```bash
-bun run packages/engine/scripts/attestcoin-probe.ts
-```
-
-```
-1. Creditcoin RPC
-  ✓ chain 102031 (Creditcoin CC3 Testnet), head 5,474,464
-2. ChainInfo precompile (0x…0fD3)
-  ✓ 2 attested source chain(s):
-      chainKey 3 → chainId 1 (Ethereum)
-      chainKey 1 → chainId 11155111 (Sepolia ethereum)
-  ✓ Base is NOT an attested source chain → anchoring on an attested chain is required
-3. Attestation liveness
-  ✓ latest attested height 11,688,220   source head 11,688,259
-  ✓ lag 39 blocks (~8 min): attestation is live and current
-4. Prover API
-  ✓ prover reports attested height 11,688,220 · agrees with the precompile (drift 0)
-5. Proof generation for a real attested transaction
-  ✓ proof generated
-6. Proof structure matches what AttestPayASC expects
-  ✓ txBytes: 2688 bytes · 7 Merkle siblings · 1 continuity root
-  ✓ txBytes envelope starts with a valid tx type tag (2)
-```
-
-The Solidity decoder is tested against that same real prover output rather than against
-blobs this repo encodes itself — see
-[docs/attestcoin-integration.md §14](docs/attestcoin-integration.md#14-verifying-the-protocol-facts-yourself).
-
-### Setup
-
-Optional and off by default: with no Attestcoin variables set, KeeperCard behaves
-exactly as it did before — the four tools are simply not offered, and the dashboard's
-Cross-Chain pane says so. See [`.env.example`](.env.example) for the variables and
-[docs/attestcoin-integration.md](docs/attestcoin-integration.md#13-deployment) for the
-deploy steps. At boot the server verifies the deployed ASC agrees with its own
-configuration (same chain key, anchor and anchorer) and reports a mismatch loudly,
-once, rather than letting it surface one stuck payment at a time.
-
----
-
-## Credit Lines, Disputes and the Passport
-
-Verified history is worth something only if it unlocks capital. This is the half the
-Creditcoin thesis is about, and it is built from the same proving discipline as payments.
-
-**Credit lines.** A lender offers an agent's funding account a limit, a simple interest
-rate and an expiry. Both sign the terms (EIP-712, domain-bound to the deployed
-`AttestPayCreditLine`, per-lender nonce), the server registers them on Creditcoin, and:
-
-- a **draw** (`draw_credit`) pays USDC from the lender's designated *funding card* to the
-  borrower's funding account through the ordinary `spend()` path — the lender's own card
-  terms are the on-chain ceiling on Base, the line's limit is the ceiling on Creditcoin;
-- a **repayment** (`repay_credit`) pays the lender from the agent's card within its terms;
-- each is anchored by `FactAnchor` and **proven** into `AttestPayCreditLine`, which
-  advances `Open → Active → Repaid` (or `Defaulted` past expiry with a balance) from the
-  proven bytes. A late repayment still clears a default; the default stays on the record.
-
-Modelled on the Attestcoin protocol's `ASCLoanManager` example with two changes: the
-example's `abi.encodePacked` terms hash has no domain, so one signature is valid on every
-deployment; and its `onlyOwner` registration puts an operator key in the loop. Here
-signatures bind one contract on one chain, and anyone may submit them.
-
-**Guarantees.** Creditcoin is a staking chain, so the same primitive applies to agent
-credit: `AttestPayGuarantee` lets anyone bond CTC behind a borrower; a proven default is
-slashable in the lender's favour (permissionless, mechanical). It is how an agent with no
-history yet can be lent to — the operator puts money where the reputation will be.
-
-**Disputes and revocations.** Payments are irreversible, so the recourse is a record:
-disputes open against one payment, resolve to upheld / rejected / withdrawn, and are proven
-into `AttestPayLedger` at both ends; upheld ones count against the passport. Revocations
-are proven with their timestamp, so any merchant can answer "was this card live when it
-paid me?" with `wasRevokedAt(cardId, paidAt)` instead of taking KeeperCard's word for it.
-
-**The passport.** `CreditPassport.passportOf(account)` composes payments, lines, disputes
-and bonds into one struct with a stable ABI and computes the score **on-chain** from a
-published formula, so other Creditcoin dApps can underwrite an agent with one call.
-Off-chain, `GET /passport/:address` is public and returns the same record with an EIP-191
-signed credential any third party can verify offline (`POST /passport/verify`, or the SDK).
-
----
-
-## Webhooks, Teams and the Audit Log
-
-- **Webhooks.** Every card action, confirmed payment, verified/failed proof or fact,
-  credit-line step, dispute and low-budget alert is an event; deliveries are signed
-  (`X-KeeperCard-Signature: t=…,v1=hmac-sha256(t.body)`), retried on a 30s/2m/10m/1h/6h
-  schedule and dead-lettered with a manual retry. `budget.low` fires once per period when a
-  card's remaining budget drops to its threshold (default 20%).
-- **Teams.** A card belongs to one wallet; a team is an access layer over it. Invite by
-  wallet address; `viewer` reads, `member` freezes/disputes/draws/repays, `admin` assigns
-  cards and manages members, `owner` deletes. No role can issue, reveal a card URL, or
-  revoke on-chain — those need the owning wallet's signature.
-- **Audit log.** Who did what to which card, from which lane, exportable as JSON or CSV.
-- **Idempotency.** `pay`, `execute`, `draw_credit` and `repay_credit` all take an
-  `idempotency_key`; the same key returns the same charge.
-
-All of it lives under Settings in the dashboard and under `/api` for the SDK.
-
----
-
-## SDK
-
-[`packages/sdk`](packages/sdk) — `@attestpay/sdk`, a typed client over the whole API plus
-the two verifiers every integrator needs: `verifyWebhookSignature` (WebCrypto) and
-`verifyPassportCredential` (EIP-191). Typed refusals arrive as `AttestPayError` with the
-server's code.
-
-```ts
-import { KeeperCard } from "@attestpay/sdk";
-
-const ap = new KeeperCard({ baseUrl: "https://api.example.com", token: PRIVY_ACCESS_TOKEN });
-const { as_borrower } = await ap.credit.list();
-await ap.credit.draw(as_borrower[0].line_id, { card_id, amount: "4.00", idempotency_key: "draw-1" });
-
-const passport = await ap.passport.get("0xAgentFundingAccount");
-const ok = await ap.passport.verify(passport.credential!, { expectedSigner: ANCHORER });
-```
+Lanes A and B work in any MCP client that speaks Streamable HTTP (Cursor, VS Code,
+Codex, Gemini CLI, Goose, claude.ai connectors). Lane C is a self-hosted OAuth
+authorization server — PKCE, dynamic client registration, rotating refresh tokens — that
+issues a short-lived, card-scoped token after you pick a card in the browser. Revoking
+the card kills every token issued for it.
 
 ---
 
 ## Architecture
 
-Bun monorepo, three packages:
-
 ```
 packages/
-  engine/     pure core: caveat compiler, issuance, spend, redelegation, revocation,
-              and attestcoin/ — the cross-chain proof pipeline
-  server/     Hono: REST API + MCP endpoint + x402 facilitator + demo seller + Stripe webhook,
-              plus the Attestcoin proof worker
-  dashboard/  Next.js: Privy login, one-screen cockpit (card deck + dossier, light/dark),
-              NL issue modal (client-signed), demo shop, Cross-Chain pane
-contracts/    Foundry: PaymentAnchor (Ethereum Sepolia) + AttestPayASC (Creditcoin CC3)
+  engine/      cards, delegations, the spend pipeline, and keeperhub/
+    keeperhub/   client · executor · workflows · anchor · receipts · treasury · attestation
+  server/      Hono API, MCP server, OAuth AS, x402 facilitator, KeeperHub routes + scripts
+  dashboard/   Next.js on Cloudflare Workers; /keeperhub is the execution console
+  sdk/         typed client, webhook signature verifier
+contracts/     PaymentAnchor.sol — the on-chain receipt
 ```
 
-Key pieces:
+The executor seam is what made this an integration rather than a rewrite: `spend()` talks
+to an `Executor` interface, and `KeeperHubExecutor` is the default implementation.
+`ATTESTPAY_EXECUTOR=1shot` still selects the legacy relayer as a rollback lane.
 
-- **Caveat compiler** (`engine/src/compiler.ts`): turns human terms (`{"pay": {"period": {"amount": "25", "seconds": 604800}}}`) into delegation-framework enforcer caveats.
-- **NL compiler** (`server/src/venice/`): Venice AI turns a plain-language request into a plan of named entities + numbers; the server resolves every name against its own verified registry (model output can never place an address in a draft) and assembles a `CardTerms` draft for the user to review and sign.
-- **Issuance**: server prepares an unsigned delegation, the user's wallet signs it in the browser (prepare/finalize), so the server never holds the user's key for client-signed cards.
-- **Spend** (`engine/src/spend.ts`): validates terms server-side, then redeems the delegation chain through the configured `Executor` — KeeperHub by default, the legacy 1Shot relayer under `ATTESTPAY_EXECUTOR=1shot` — which calls `DelegationManager.redeemDelegations` on-chain on your behalf. A first spend from a never-upgraded account submits the user's EIP-7702 authorization first (`keeperhub/bootstrap.ts`), because KeeperHub sends ordinary type-2 transactions.
-- **Sub-cards**: ERC-7710 redelegations. Caps only narrow. Revoking a parent kills the subtree.
-- **Two payment rails off one delegation**: x402 (real USDC, live) and Stripe Issuing real-time auth (test mode, fiat leg simulated honestly).
-- **MCP server**: stateless Streamable HTTP, identity = the card credential on every request, no sessions.
-- **Cross-chain verification** (`engine/src/attestcoin/`): a persisted state machine that anchors each confirmed payment on an attested chain and proves it into Creditcoin. Entered through a single `onChargeConfirmed` hook on `SpendDeps`, so every confirmation path feeds it; run by a background worker, because attestation takes minutes and `pay` must return in seconds. See [Cross-Chain Verification](#cross-chain-verification-attestcoin).
-- **OAuth lane** (`server/src/oauth/`): a self-hosted OAuth 2.1 authorization server (RFC 9728 + RFC 8414 discovery, RFC 7591 dynamic client registration, PKCE S256, RFC 8707 resource binding, rotating refresh tokens, RFC 7009 revocation). Login and the card-picker consent reuse the existing Privy dashboard session; issued tokens are opaque, card-scoped, hash-stored beside the card secrets, and die when the card is revoked.
+Two things had to be true before a card payment could land through KeeperHub, both found
+by testing against the live chain and both now covered by tests:
 
-### Contracts (Base mainnet)
+- **EIP-7702.** KeeperHub submits ordinary type-2 transactions, so a never-upgraded
+  account cannot spend. Gas sponsorship does not cover a type-4 authorization, so
+  `ATTESTPAY_7702_SPONSOR_PK` pays for that one zero-value transaction (~46k gas).
+- **Single call-type redemption.** Every caveat enforcer on a card chain is
+  `onlySingleCallTypeMode`. A payment carries two executions; encoded as one batch entry
+  it reverted with `CaveatEnforcer:invalid-call-type` before any transfer. Each execution
+  is now its own single-mode entry under the same delegation chain, in one transaction.
 
-| Contract | Address |
-|---|---|
-| DelegationManager | `0xdb9B1e94B5b69Df7e401DDbedE43491141047dB3` |
-| Stateless7702 delegator impl | `0x63c0c19a282a1B52b07dD5a65b58948A07DAE32B` |
-| USDC | `0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913` |
+### Observability
 
-### Attestcoin precompiles (Creditcoin CC3 testnet, chain 102031)
-
-| Precompile | Address | Role |
-|---|---|---|
-| Block Prover | `0x0000000000000000000000000000000000000FD2` | Verifies Merkle inclusion + block continuity proofs on-chain |
-| Chain Info | `0x0000000000000000000000000000000000000fD3` | Supported source chains, attestation heights (snake_case ABI) |
+OpenTelemetry throughout: `keeperhub.dry_run`, `keeperhub.execute`,
+`keeperhub.execution_poll`, `keeperhub.receipt_sweep`, plus execution, failure, retry and
+latency metrics. Policy refusals (`refusal_reason`) and execution failures
+(`keeperhub_execution_failed`) are logged separately, so the two failure domains stay
+distinguishable. Point `OTEL_EXPORTER_OTLP_ENDPOINT` at any OTLP collector.
 
 ---
 
-## Observability (SigNoz)
+## Getting started
 
-KeeperCard is fully instrumented with OpenTelemetry and sends traces, metrics, and logs to SigNoz Cloud (and can self-host locally via the included `casting.yaml`). The full observability architecture (16 use cases, RED metrics, SLOs, saved views, dashboards, alerts, cost control, and the service map) is documented in [docs/architecture.md](docs/architecture.md).
-
-### Instrumented Surface
-
-| Category | Signal | What's Tracked | How to See in SigNoz |
-|----------|--------|----------------|----------------------|
-| API Requests | Trace | Every HTTP request with route pattern, method, status code, auth info | Traces -> filter `service.name = attestpay-server` |
-| MCP Tool Calls | Trace | Every agent tool call (`card`, `pay`, `shop_buy`, ...) with card context and typed refusal codes | Traces -> search `name LIKE 'mcp_tool_%'` |
-| Stripe Webhooks | Trace | Auth decision flow (approve/decline) with decision and card context | Traces -> search `stripe_webhook_auth` |
-| On-Chain Payments | Trace | Relayer redemption with USDC amount, gas, tx hash | Traces -> search `1shot_relayer_redeem` |
-| AI Compilation | Trace | Plain-language card intent -> compiled terms, token usage | Traces -> search `nl_compile` |
-| Reconcile Sweep | Trace | Stuck-pending charge resolution (reconciled/still_pending counts) | Traces -> search `reconcile_sweep` |
-| Fiat Settlement | Trace | Visa->on-chain settlement sweep (settled/left counts) | Traces -> search `fiat_settle_sweep` |
-| Cards Issued | Metric | `attestpay.cards_issued_total` - root + sub-cards across all users | Metrics -> counter |
-| USDC Spent | Metric | `attestpay.usdc_spent_total` - total USDC across all rails | Metrics -> counter |
-| Active Cards | Metric | `attestpay.active_cards` - live gauge of issued - revoked | Metrics -> up-down counter |
-| Charges Processed | Metric | `attestpay.charges_total` - confirmed + pending + failed charges | Metrics -> counter |
-| API Errors | Metric | `attestpay.errors_total` - every 403/422/502/500 response | Metrics -> counter |
-| Refusal Logs | Log | Typed refusals with reason, card_id, attempted_amount | Logs -> filter `refusal_reason` |
-| Card Lifecycle | Log | `issued`, `frozen`, `unfrozen`, `revoked`, `nuked`, `url_revealed`, `secret_rotated`, `onboarded` | Logs -> filter `card_event` |
-| Charge Confirmed | Log | Successful payments with amount, kind, card_id | Logs -> filter `charge_event = confirmed` |
-| API Errors | Log | Every error with operation, status code, route, method | Logs -> filter `operation` or `error_message` |
-
-### Pipeline
-
-```
-attestpay-server (Node.js)
-  |
-  |- @opentelemetry/auto-instrumentations-node  (automatic HTTP/fetch/DB spans)
-  |- Manual instrumentation via trace API       (custom business spans)
-  |- Metrics via Meter API                      (counters + up-down counters)
-  |- Logs via Logger API                        (structured card lifecycle events)
-  |
-  +- OTLP HTTP exporter (port 4318)
-       |
-       v
-  SigNoz Cloud (ingest.us2.signoz.cloud:443)
-       |
-       |- Traces  -> distributed tracing waterfall
-       |- Metrics -> dashboard panels + alerts
-       +- Logs    -> structured log explorer
-```
-
-The OTel SDK is initialized early via Bun `--preload` (`packages/server/src/otel.ts`) so auto-instrumentation wraps every module from boot. The engine package (`packages/engine/src/telemetry.ts`) declares all custom metrics and structured log functions.
-
-### Self-Hosted SigNoz (Local Dev)
-
-A `casting.yaml` is included for deploying SigNoz locally with Foundry:
-
-```bash
-# Deploy SigNoz stack locally
-foundryctl cast -f casting.yaml --locked
-
-# SigNoz UI: http://localhost:3301
-# OTLP endpoint: http://localhost:4318
-# SigNoz MCP: http://localhost:8000
-```
-
-The `casting.yaml.lock` pins every Docker image to its content digest for reproducible deployments.
-
-### SigNoz Dashboard Panels
-
-Create a KeeperCard dashboard in SigNoz with these panels:
-
-**Panel 1: Cards Issued Over Time (Time Series)**
-
-```sql
-SELECT toStartOfInterval(toDateTime(intDiv(timestamp_ms, 1000)), INTERVAL 5 MINUTE) AS ts,
-       sum(value) AS value
-FROM signoz_metrics.distributed_samples_v2
-WHERE metric_name = 'attestpay.cards_issued_total'
-  AND ts BETWEEN $start_datetime AND $end_datetime
-GROUP BY ts
-ORDER BY ts
-```
-
-**Panel 2: Active Cards (Value / Gauge)**
-
-```sql
-SELECT sum(value) AS active_cards
-FROM signoz_metrics.distributed_samples_v2
-WHERE metric_name = 'attestpay.active_cards'
-  AND timestamp_ms > toUnixTimestamp(now()) * 1000 - 60000
-```
-
-**Panel 3: USDC Spent (Time Series)**
-
-```sql
-SELECT toStartOfInterval(toDateTime(intDiv(timestamp_ms, 1000)), INTERVAL 5 MINUTE) AS ts,
-       sum(value) AS value
-FROM signoz_metrics.distributed_samples_v2
-WHERE metric_name = 'attestpay.usdc_spent_total'
-  AND ts BETWEEN $start_datetime AND $end_datetime
-GROUP BY ts
-ORDER BY ts
-```
-
-**Panel 4: API Errors (Time Series)**
-
-```sql
-SELECT toStartOfInterval(toDateTime(intDiv(timestamp_ms, 1000)), INTERVAL 5 MINUTE) AS ts,
-       sum(value) AS errors
-FROM signoz_metrics.distributed_samples_v2
-WHERE metric_name = 'attestpay.errors_total'
-  AND ts BETWEEN $start_datetime AND $end_datetime
-GROUP BY ts
-ORDER BY ts
-```
-
-**Panel 5: API Request Duration by Route**
-
-```sql
-SELECT toStartOfInterval(timestamp, INTERVAL 5 MINUTE) AS ts,
-       attributes_string['http.route'] AS route,
-       avg(durationNano) / 1000000 AS avg_ms
-FROM signoz_traces.distributed_signoz_index_v2
-WHERE resources_string['service.name'] = 'attestpay-server'
-  AND ts BETWEEN $start_datetime AND $end_datetime
-GROUP BY ts, route
-ORDER BY ts
-```
-
-### Alerts
-
-Create alerts in SigNoz for these conditions:
-
-| Alert | Condition | Severity |
-|-------|-----------|----------|
-| High Error Rate | `attestpay.errors_total` rate > 10/min for 5 min | Critical |
-| No Cards Issued | `attestpay.cards_issued_total` has no new value for 30 min | Warning |
-| High API Latency | P99 HTTP duration > 5000ms for 5 min | Warning |
-| Spike in Refusals | Log count with `refusal_reason: *` > 20/min | Warning |
-
-### SigNoz MCP Integration
-
-KeeperCard includes the SigNoz MCP server for agentic observability workflows:
-
-```bash
-# Add the SigNoz MCP server to your AI agent
-claude mcp add signoz http://localhost:8000 \
-  --header "Authorization: Bearer $SIGNOZ_MCP_AUTH_TOKEN"
-```
-
-Your AI agent can then use SigNoz MCP tools to query traces and logs from KeeperCard, create and modify dashboards, set up and investigate alerts, and run ClickHouse queries against the observability data.
-
-### Screenshots
-
-
-**Traces**
-
-<img width="1908" height="942" alt="swappy-20260731-190527" src="https://github.com/user-attachments/assets/8e328e2e-e5f0-4fe9-a246-0f2a431c35fd" />
-
-<img width="1904" height="939" alt="swappy-20260731-231952" src="https://github.com/user-attachments/assets/b48df685-119d-4c1e-b87b-9e798a571349" />
-
-<img width="1903" height="952" alt="swappy-20260731-185624" src="https://github.com/user-attachments/assets/67c55376-2b20-4b45-bff5-da3334df6773" />
-
-
-**Metrics**
-
-<img width="1846" height="917" alt="swappy-20260731-232129" src="https://github.com/user-attachments/assets/6adf56b2-aec7-4c05-94d8-47bcf03021b5" />
-
-
-**Logs**
-
-<img width="1908" height="933" alt="swappy-20260731-185656" src="https://github.com/user-attachments/assets/79e9c153-8d7a-4213-928d-3599d958f573" />
-
-
-**Dashboards and Alerts**
-
-<img width="954" height="724" alt="swappy-20260731-232540" src="https://github.com/user-attachments/assets/595d3729-3f69-435a-a46e-1b07eb2a0193" />
-
-<img width="1918" height="954" alt="swappy-20260731-191321" src="https://github.com/user-attachments/assets/78f648c2-e63d-4332-9d9c-4f88f703b43a" />
-
-<img width="1851" height="603" alt="swappy-20260727-215523" src="https://github.com/user-attachments/assets/74e31813-cd5d-480a-8971-59697237ebfe" />
-
-<img width="922" height="467" alt="swappy-20260727-215311" src="https://github.com/user-attachments/assets/4be239bc-6492-47a2-af68-17161cd18d98" />
-
-<img width="911" height="323" alt="swappy-20260727-215324" src="https://github.com/user-attachments/assets/9f69dc3f-da86-4464-bddf-a11fb7a69b98" />
-
-<img width="913" height="331" alt="swappy-20260727-215333" src="https://github.com/user-attachments/assets/7b558d32-a152-410a-9501-50f34343b2d8" />
-
-<img width="914" height="662" alt="swappy-20260727-215346" src="https://github.com/user-attachments/assets/1df182b1-ccda-424c-b607-580e6d1a6794" />
-
-<img width="909" height="668" alt="swappy-20260727-215357" src="https://github.com/user-attachments/assets/4554aabb-bb5a-4a19-b523-765477756886" />
-
-<img width="917" height="338" alt="swappy-20260727-215406" src="https://github.com/user-attachments/assets/0dfa165e-7173-48bf-989e-4af9f6af230b" />
-
----
-
-## Getting Started
-
-Requires [bun](https://bun.sh). Real money moves on Base mainnet; use small budgets.
+Requires [bun](https://bun.sh).
 
 ```bash
 bun install
-cp .env.example .env                       # then fill in the two required vars:
-# ATTESTPAY_MASTER_KEY=<64 hex chars>            encrypts agent keys + card secrets at rest
-# ATTESTPAY_ADMIN_TOKEN=<random token>           protects the management API
+cp .env.example .env
+#   ATTESTPAY_MASTER_KEY=<64 hex>      encrypts agent keys + card secrets at rest
+#   ATTESTPAY_ADMIN_TOKEN=<random>     protects the management API
+#   KEEPERHUB_API_KEY=kh_...           app.keeperhub.com → Settings → Developer → API keys
+#   KEEPERHUB_RECEIPT_ANCHOR_ADDRESS=0x56733223c688cce7fc65826b692b3f8521e4ab3e
 
-bun dev                                    # server on :4070
-bun run --cwd packages/dashboard dev       # dashboard on :4071
+bun run --cwd packages/server keeperhub:provision   # create the workflows (idempotent)
+bun run --cwd packages/server keeperhub:doctor      # verify the whole lane
+
+bun dev                                             # API + MCP on :4070
+bun run --cwd packages/dashboard dev                # dashboard on :4071
 ```
 
-Issue a card from the dashboard (Privy login), or via the admin API:
+Issue a card from the dashboard (Privy login), or through the admin API:
 
 ```bash
 curl -X POST localhost:4070/api/cards \
   -H "Authorization: Bearer $ATTESTPAY_ADMIN_TOKEN" -H "Content-Type: application/json" \
   -d '{"name":"my agent card","terms":{"pay":{"period":{"amount":"5","seconds":604800}}}}'
-# -> { "card_id": ..., "card_url": "http://localhost:4070/c/<secret>/mcp" }
+# → { "card_id": ..., "card_url": "http://localhost:4070/c/<secret>/mcp" }
 ```
 
-Plug the `card_url` into an agent and it can spend.
-
----
-
-## Tests
+Plug the `card_url` into an agent and it can spend — within the card's terms.
 
 ```bash
-bun run test             # engine + server + sdk suites (496 pass, 4 skipped)
-bun run typecheck        # per-package tsc
-cd contracts && forge test   # Solidity suite (111 tests)
+bun test                  # engine + server + sdk
+bun run typecheck         # per-package tsc
 ```
 
-Attestcoin-specific suites:
-
-```bash
-cd contracts && forge test                        # proofs, impostor anchors, replay, terms,
-                                                  # and the decoder against REAL prover output
-bun run packages/engine/scripts/attestcoin-probe.ts  # live, read-only protocol probe
-bun run test packages/engine/test/attestcoin.test.ts  # proof state machine, grading, config
-bun run test packages/server/test/attestcoin.test.ts  # routes + tools, configured AND not
-bun run test packages/engine/test/attestcoin-credit.test.ts  # EIP-712 terms, facts pipeline, disputes, passport credential
-bun run test packages/server/test/credit.test.ts      # propose/sign/register, draw/repay over MCP, disputes, public passport
-bun run test packages/server/test/events.test.ts      # webhooks, signing, backoff, budget alerts, audit export
-bun run test packages/server/test/teams.test.ts       # roles on the Privy lane
-```
-
-The server suite runs the whole Attestcoin surface in **both** configurations. The
-disabled case is the one that protects existing deployments: it asserts that a server
-which never configures Attestcoin is unchanged, that every route still answers with
-`configured: false`, and that the four cross-chain tools are absent.
+Deployment (Cloudflare Workers + Render): [`docs/keeperhub/deployment.md`](docs/keeperhub/deployment.md).
+How the KeeperHub API actually behaves, including where it differs from its docs:
+[`docs/keeperhub/api-notes.md`](docs/keeperhub/api-notes.md).
 
 ---
 
-## Environment Variables
+## Security model
 
-| Var | Required | Purpose |
-|---|---|---|
-| `ATTESTPAY_MASTER_KEY` | yes | 32-byte hex key; encrypts agent keys and card secrets at rest |
-| `ATTESTPAY_ADMIN_TOKEN` | yes | ops bearer token for the management API (`/api/*`): full access, server-side scripts only, never shipped to a browser |
-| `ATTESTPAY_PRIVY_APP_ID` | dashboard lane | enables per-user API auth: Privy access tokens verified offline against the app's JWKS; every route scoped to the authenticated user |
-| `PORT` | no | server port (default 4070) |
-| `ATTESTPAY_DB_PATH` | no | SQLite path (default `.dev/remit.sqlite`) |
-| `ATTESTPAY_RPC_URL` | no | Base RPC (default `https://mainnet.base.org`) |
-| `ATTESTPAY_PUBLIC_MCP_BASE` | prod | public origin used when rendering card URLs (unset = localhost; also arms the MCP Host allowlist) |
-| `ATTESTPAY_ALLOWED_HOSTS` | no | extra Host headers accepted on the MCP endpoint (comma-separated; e.g. a platform fallback domain) |
-| `ATTESTPAY_CORS_ORIGINS` | no | comma-separated allowed origins for the API |
-| `ATTESTPAY_DEV_USER_PK` | no | dev-only server-custodied user key (server-signed issuance lane) |
-| `ATTESTPAY_FACILITATOR_BASE` | no | x402 facilitator base URL (defaults to self) |
-| `ATTESTPAY_SELLER_PAYTO` | no | payout address for the built-in demo seller |
-| `ATTESTPAY_PAID_FETCH_ALLOW_LOCAL` | no | allow `paid_fetch` to hit local/private hosts (dev only) |
-| `ATTESTPAY_STRIPE_WEBHOOK_SECRET` | no | Stripe real-time auth webhook signing secret (test mode); unset = the fiat leg answers 503 (disabled) |
-| `STRIPE_SECRET_KEY` | no | Stripe TEST-mode secret key (`sk_test_`/`rk_test_` only; anything else is refused); enables `fiat_pay`, `card_credentials`, and the demo shop |
-| `ATTESTPAY_FIAT_SETTLEMENT` | no | `1` = approved Visa charges settle on-chain as real delegated USDC transfers (see `ATTESTPAY_SETTLEMENT_ADDRESS`, `ATTESTPAY_FIAT_FEE_HEADROOM`, `ATTESTPAY_FIAT_SETTLE_INTERVAL_MS`) |
-| `ATTESTPAY_SETTLEMENT_ADDRESS` | settlement | recipient of the fiat settlement transfers (validated at boot; default = the fee collector) |
-| `VENICE_API_KEY` | no | enables `POST /cards/compile` (plain-language card drafting); unset = the compile endpoint refuses (disabled) |
-| `VENICE_MODEL` | with key | Venice model id for the NL compiler; pin it (the fallback default is unvalidated) |
-| `VENICE_BASE_URL` | no | Venice API base override (defaults to the public Venice endpoint) |
-| `BASESCAN_API_KEY` | no | enables verified-contract labels from Basescan when resolving compiled drafts |
-| `ATTESTPAY_DASHBOARD_BASE` | OAuth lane | dashboard origin that hosts the OAuth consent (card-picker) page (default `http://localhost:4071`) |
-| `ATTESTPAY_RECONCILE_INTERVAL_MS` | no | stuck-pending-charge reconcile sweep interval (default 300000; 0 disables) |
-| `ATTESTPAY_MCP_RATE_LIMIT` / `ATTESTPAY_MCP_BAD_SECRET_LIMIT` | no | per-card and per-IP-bad-secret request ceilings per minute (defaults 240 / 30) |
-| `ATTESTPAY_OAUTH_ACCESS_TTL` / `ATTESTPAY_OAUTH_REFRESH_TTL` | no | OAuth access / refresh token lifetimes in seconds (defaults 3600 / 2592000) |
-| `ATTESTPAY_OAUTH_REDIRECT_HOSTS` | no | if set, restricts OAuth `https` redirect-URI hosts to this allowlist (loopback + custom schemes always allowed; recommended in prod) |
-| `ATTESTPAY_OAUTH_ACCEPTED_RESOURCES` | no | extra RFC 8707 resource URIs still honored (legacy values during a base-URL migration) |
-| `ATTESTPAY_TRUST_PROXY_HOPS` | no | trusted proxy hops for client-IP rate limiting (default 1 = Railway edge; 0 disables XFF trust) |
-| `ATTESTPAY_PAYMENT_ANCHOR_ADDRESS` | attestcoin | `PaymentAnchor` on Ethereum Sepolia; one of three values required to enable cross-chain verification |
-| `ATTESTPAY_ASC_ADDRESS` | attestcoin | `AttestPayASC` on Creditcoin CC3 testnet |
-| `ATTESTPAY_ATTESTCOIN_PRIVATE_KEY` | attestcoin | signer for both legs (needs Sepolia ETH + tCTC); must match the ASC's `trustedAnchorer` |
-| `ATTESTPAY_ATTESTCOIN_CHAIN_KEY` | no | Attestcoin source-chain key, **not** an EVM chain id (default 1 = Ethereum Sepolia; 3 = mainnet; `auto` selects from the live registry by the source RPC's chain) |
-| `ATTESTPAY_SEPOLIA_RPC` | no | source-chain RPC where `PaymentAnchor` lives |
-| `ATTESTPAY_CREDITCOIN_HTTP_RPC` | no | Creditcoin CC3 RPC (HTTP, not WebSocket: the USC SDK needs a `JsonRpcApiProvider`) |
-| `ATTESTPAY_PROVER_API_URL` | no | Attestcoin proof generator API |
-| `ATTESTPAY_ATTESTCOIN_SWEEP_INTERVAL_MS` | no | proof worker tick (default 60000; 0 stops it, so payments queue but never verify) |
-| `ATTESTPAY_ATTESTCOIN_BATCH_SIZE` | no | rows advanced per tick (default 10) |
-| `ATTESTPAY_FACT_ANCHOR_ADDRESS` | credit/disputes | `FactAnchor` on the source chain; shared by credit lines, disputes and proven revocations |
-| `ATTESTPAY_CREDIT_LINE_ADDRESS` | credit | `AttestPayCreditLine` on Creditcoin; enables credit lines and the credit MCP tools |
-| `ATTESTPAY_LEDGER_ADDRESS` | disputes | `AttestPayLedger` on Creditcoin; enables proven disputes and revocations |
-| `ATTESTPAY_GUARANTEE_ADDRESS` | no | `AttestPayGuarantee` on Creditcoin; bond reads, operator bonding, slashing |
-| `ATTESTPAY_PASSPORT_ADDRESS` | no | `CreditPassport` on Creditcoin; the composed passport + on-chain score and signed credential |
-| `ATTESTPAY_PAYMENT_CHAIN_ID` | no | the chain USDC settles on (default 8453); recorded in anchors and compared against the registry |
-| `ATTESTPAY_WEBHOOK_INTERVAL_MS` | no | webhook delivery sweep (default 15000; 0 disables delivery) |
-| `ATTESTPAY_WEBHOOK_ALLOW_LOCAL` | no | `1` allows http:// and private-network webhook URLs (dev only) |
-| `ATTESTPAY_PASSPORT_RATE_LIMIT` | no | per-IP ceiling on the public passport routes per minute (default 60) |
-| `ATTESTPAY_ATTESTCOIN_ENABLED` | no | set to `0` to force the integration off even when fully configured |
-| `NEXT_PUBLIC_PRIVY_APP_ID` / `NEXT_PUBLIC_PRIVY_CLIENT_ID` | dashboard | Privy app credentials (public identifiers, not secrets) |
-| `NEXT_PUBLIC_ATTESTPAY_API` | dashboard | server API base, e.g. `http://localhost:4070/api` |
-| `NEXT_PUBLIC_BASE_RPC` | dashboard | Base RPC for client-side reads |
-
-Cross-chain verification is optional: leave the three `attestcoin` rows blank and
-KeeperCard runs exactly as it does without the integration. The server logs which
-variables are missing at boot rather than no-oping silently.
-
-The dashboard carries no shared secret: every API call sends the signed-in user's Privy session token, which the server verifies and scopes. The deployed dashboard origin must be listed in the server's `ATTESTPAY_CORS_ORIGINS`.
-
-OpenTelemetry / SigNoz variables (`OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_EXPORTER_OTLP_HEADERS`, `OTEL_TRACES_EXPORTER`, `OTEL_METRICS_EXPORTER`, `OTEL_LOGS_EXPORTER`, `ATTESTPAY_OTEL_DEBUG`) are documented in `.env.example`.
+- **Custody.** Funds stay in your wallet until the moment of payment. The per-card agent
+  key signs redelegations only; it holds no assets and is encrypted at rest.
+- **KeeperHub is non-custodial too.** Its Turnkey wallet is the *delegate* — it can only
+  redeem delegations the card's caveats allow, and it never holds the user's funds.
+- **Dashboard auth.** Per-user Privy sessions verified against the app JWKS; every card
+  route is scoped to the authenticated user's own cards.
+- **Card secrets.** 256-bit, stored as a hash for auth and AES-256-GCM-encrypted for
+  reveal/rotate. The URL is a credential: rotate it like a password.
+- **Revocation layers.** Freeze (server, reversible) → revoke (card + subtree, permanent)
+  → nuke (on-chain nonce bump that kills every delegation the wallet ever issued).
+- **MCP hardening.** Host allowlist, per-card and bad-secret rate limits, 1 MiB body cap,
+  secrets never echoed in errors or logs.
 
 ---
 
-## Security Model
+## Known limitations
 
-- **Custody**: your funds stay in your wallet. The per-card agent key signs redelegations only; it holds no assets and is encrypted at rest. You can export your wallet's private key from the account menu at any time (through Privy's secure modal, rendered in a separate-domain iframe remit never reads) and walk away to any client.
-- **Dashboard auth**: per-user Privy sessions, verified server-side against the app JWKS. At onboard, the embedded wallet signs `attestpay-onboard:v1:<did>` to prove key possession bound to that login; from then on, every card route is scoped to the authenticated user's own cards.
-- **Issuance integrity**: the server verifies the delegation signature recovers to the delegator on both issuance lanes before persisting a card.
-- **Card secrets**: 256-bit, stored as a hash for auth and AES-256-GCM-encrypted at rest for the reveal/rotate feature; the URL is a credential, rotate it like a password.
-- **Limits enforced twice**: server-side at call time (typed refusals) and on-chain by caveat enforcers at redemption. Period, lifetime, expiry, usage count, and contract target/method have dedicated on-chain enforcers; the per-transaction max and merchant allowlist are server-side carve policy, backstopped on-chain by the leaf's amount scope.
-- **Revocation layers**: freeze (server, reversible) -> revoke (card + subtree, permanent) -> nuke (on-chain nonce bump, kills every delegation ever issued by the wallet). All three are user-operable from the dashboard; on-chain revoke and nuke are signed by the user's own embedded wallet in the browser (an admin leaf delegation) and ride the relayer gaslessly.
-- **MCP surface hardening**: Host allowlist (DNS-rebinding guard), per-card and bad-secret rate limits, 1 MiB body cap, secrets never echoed in errors or logs.
-- **Stripe leg**: test mode only, by design; the real-time auth webhook answers from cached delegation state within Stripe's 2s window. With settlement enabled, an approved charge settles as a real delegated USDC transfer afterwards (the same enforcers count both rails), and a charge whose settlement cannot land parks `settlement_unconfirmed` and freezes the card rather than ever releasing its budget.
+Stated plainly, because the brief asks what is unfinished.
 
----
+- **Testnet.** Everything above is Base Sepolia. Base mainnet is supported by the code
+  (`ATTESTPAY_CHAIN_ID=8453`) and was not exercised for this submission.
+- **Free-plan workflows.** `stuck-charge-recovery` and `fiat-settlement-sweep` need
+  KeeperHub Pro; KeeperCard runs those two timers itself. `notification-relay` needs a
+  Discord, Telegram or SendGrid integration.
+- **`x402-settlement` and `fiat-settlement` are provisioned but not exercised on-chain.**
+  They are the same redemption as `card-payment-redemption` under their own names, and
+  the routing is tested, but no x402 seller or Stripe test key was part of this demo.
+- **KeeperHub's risk assessor currently returns its fail-closed default for this org**
+  (its AI backend reports a failed analysis). So the risk read shows as *unavailable*,
+  and `guarded-card-payment` has been shown to pass a score of 70 under a ceiling of 90 —
+  not yet to *refuse* a genuinely critical verdict, which needs the assessor to produce one.
+- **A receipt is KeeperCard's claim.** `PaymentAnchor` records who anchored what; it does
+  not by itself prove the payment happened. It records the payment's transaction hash on
+  the same chain so anyone can check one against the other.
+- **Free-tier persistence.** Render's free plan has no disk, so `/data` resets on every
+  deploy and whenever the instance sleeps — which loses cards and delegations. Attach a
+  disk for anything beyond a demo (`render.yaml` has the stanza).
+- **KeeperHub's MCP server is not used by the backend.** A server should call the REST
+  API, and does. The MCP server is how a human's agent inspects these same workflows.
 
-## Demo Merchant
-
-`/shop` (also served at https://shop.s0nderlabs.xyz) is a small storefront, "s0nder supply co.", that accepts the cards' Visas. It exists to show the fiat lane end to end with nothing mocked on our side of the rail:
-
-1. An agent asks its card for credentials (`card_credentials`) and fills the checkout form like it would at any web store.
-2. The shop fires a real Stripe test-mode authorization; Stripe calls our real-time auth webhook; the webhook answers approve/decline from the card's on-chain delegation state within Stripe's 2-second window.
-3. A decline (e.g. an item over the card's weekly budget) comes back typed, from the card's terms, not from the merchant.
-4. With settlement enabled, the approved charge settles as a real delegated USDC transfer on Base, through the same enforcers that meter the crypto rail. One budget, two rails.
-
-Catalog prices are all $5 or less because approved purchases move real USDC.
-
----
-
-## Documentation
-
-| Document | Contents |
-|---|---|
-| [docs/attestcoin-integration.md](docs/attestcoin-integration.md) | The Attestcoin Protocol integration in full: trust model, contracts, the proof pipeline, credit scoring, and commands to verify every protocol claim yourself |
-| [docs/architecture.md](docs/architecture.md) | Full system architecture with all 16 SigNoz use cases (traces, metrics, logs, dashboards, alerts, saved views, cost control, service map, SigNoz MCP) |
-| [docs/signoz-verification.md](docs/signoz-verification.md) | Step-by-step guide to verify every SigNoz feature in the live deployment |
-| [docs/blog-post.md](docs/blog-post.md) | The observability story: instrumenting agentic payments with OpenTelemetry + SigNoz |
-| [docs/medium-post.md](docs/medium-post.md) | Medium-ready version of the observability story with screenshot placeholders (IMG-1..IMG-13) |
-| [docs/screenshots/README.md](docs/screenshots/README.md) | Which screenshot goes where: drop files as `img-01.png`..`img-13.png` |
-| [docs/video-script.md](docs/video-script.md) | Demo video script, SigNoz cut (3 minutes) |
-| [docs/video-script-attestcoin.md](docs/video-script-attestcoin.md) | Demo video script, cross-chain cut for BUIDL CTC (3 minutes) |
-| [docs/hackathon-deck.md](docs/hackathon-deck.md) | Project deck source (10 slides; renders to PDF with Marp) |
-| [CHANGELOG.md](CHANGELOG.md) | Release history |
-
----
+> **A note on names.** The product is **KeeperCard**. Some internal identifiers keep an
+> older prefix — the workspace scope `@attestpay/*`, the `ATTESTPAY_*` environment
+> variables, and the API's hostname, which Render pins at creation. Renaming them would
+> invalidate every deployment's configuration for no functional gain.
 
 ## License
 
