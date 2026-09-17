@@ -62,7 +62,7 @@ export default function ShopPage() {
     })();
   }, []);
 
-  // keep the browser tab in character (root layout titles the attestpay dashboard)
+  // keep the browser tab in character (root layout titles the KeeperCard dashboard)
   useEffect(() => {
     document.title = catalog?.merchant ?? "s0nder supply co.";
   }, [catalog]);
@@ -111,7 +111,7 @@ export default function ShopPage() {
   const activeCatalog = activeTab === "stripe" ? stripeCatalog : catalog;
   const activeMerchant =
     activeTab === "stripe"
-      ? stripeCatalog?.merchant ?? "attestpay marketplace"
+      ? stripeCatalog?.merchant ?? "keepercard marketplace"
       : catalog?.merchant ?? "s0nder supply co.";
   const products = activeCatalog?.products ?? [];
 

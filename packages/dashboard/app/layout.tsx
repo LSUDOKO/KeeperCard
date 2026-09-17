@@ -15,10 +15,10 @@ const mono = Roboto_Mono({ weight: ["400", "500"], subsets: ["latin"], variable:
 export const metadata: Metadata = {
   title: { default: "KeeperCard — spending cards for AI agents", template: "%s · KeeperCard" },
   description:
-    "Issue scoped, revocable spending cards from your wallet. Any AI agent plugs one in over MCP and pays within your limits; every payment is proven onto Creditcoin.",
+    "Issue scoped, revocable spending cards from your wallet. Any AI agent plugs one in over MCP and pays within your limits; every confirmed payment gets an on-chain receipt.",
   openGraph: {
     title: "KeeperCard — spending cards for AI agents",
-    description: "Give your agent a card, not your keys. Scoped, revocable, proven cross-chain.",
+    description: "Give your agent a card, not your keys. Scoped, revocable, with an on-chain receipt for every payment.",
     type: "website",
   },
 };

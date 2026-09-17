@@ -49,8 +49,8 @@ export function Login({ onLogin }: { onLogin: () => void }) {
           Scoped, revocable spending cards for your agents.
         </p>
         <p className={`rv ${s.lede}`} style={{ animationDelay: ".24s" }}>
-          They borrow authority within your terms, never hold funds, and die on revoke. Every payment is proven onto
-          Creditcoin as public, checkable credit history.
+          They borrow authority within your terms, never hold funds, and die on revoke. Every confirmed payment gets an
+          on-chain receipt written by KeeperHub.
         </p>
         <p className={`rv ${s.quiet}`} style={{ animationDelay: ".3s" }}>
           Sign in with email or Google · no seed phrase
@@ -66,7 +66,7 @@ export function Login({ onLogin }: { onLogin: () => void }) {
           <span>Base</span>
           <span>ERC-7710</span>
           <span>x402</span>
-          <span>Creditcoin</span>
+          <span>KeeperHub</span>
           <span>MCP</span>
         </div>
       </section>
@@ -83,7 +83,7 @@ export function Login({ onLogin }: { onLogin: () => void }) {
               </div>
               <div className="inner">
                 <div className="row1">
-                  <span className="wm">attestpay</span>
+                  <span className="wm">keepercard</span>
                   <span className="ctag">live</span>
                 </div>
                 <ChipDots />

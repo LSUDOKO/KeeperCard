@@ -373,7 +373,7 @@ export function UrlBox({ url, testid }: { url: string; testid?: string }) {
 export function ConnectChips({ url, cardName }: { url: string; cardName: string }) {
   const [done, setDone] = useState<string | null>(null);
   const slug = cardName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "") || "card";
-  const name = `attestpay-${slug}`;
+  const name = `keepercard-${slug}`;
   const cli = `claude mcp add --transport http ${name} ${url}`;
   const codex = `codex mcp add ${name} --url ${url}`;
   // openclaw defaults HTTP servers to SSE when the transport flag is omitted · keep it explicit

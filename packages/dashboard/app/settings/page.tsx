@@ -86,7 +86,7 @@ function WebhooksSection({ flash }: { flash: (m: string) => void }) {
     <section className="setsec">
       <h2>Webhooks</h2>
       <p className="lede">
-        Signed POSTs for payments, card changes, proofs, credit and disputes. Header <code>X-KeeperCard-Signature: t=…,v1=…</code>{" "}
+        Signed POSTs for payments and card changes. Header <code>X-KeeperCard-Signature: t=…,v1=…</code>{" "}
         is an HMAC-SHA256 over <code>t.body</code> with the secret shown once at creation. Retries: 30s, 2m, 10m, 1h, 6h.
       </p>
       {err && <p className="err">{err}</p>}
@@ -98,7 +98,7 @@ function WebhooksSection({ flash }: { flash: (m: string) => void }) {
       <div className="crform">
         <label className="span2">
           Endpoint URL
-          <input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://example.com/attestpay" />
+          <input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://example.com/keepercard" />
         </label>
         <label className="span2">
           Events (none = all)
@@ -206,7 +206,7 @@ function TeamsSection({ cards, flash, refresh }: { cards: CardState[]; flash: (m
     <section className="setsec">
       <h2>Teams</h2>
       <p className="lede">
-        Share cards with roles. Viewers read; members freeze, dispute, draw and repay; admins assign cards and manage members.
+        Share cards with roles. Viewers read; members freeze and unfreeze; admins assign cards and manage members.
         No role can issue, reveal a card URL, or revoke on-chain — those stay with the owning wallet.
       </p>
       {err && <p className="err">{err}</p>}
@@ -404,7 +404,7 @@ function AuditSection({ cards }: { cards: CardState[] }) {
             const blob = new Blob([csv], { type: "text/csv" });
             const a = document.createElement("a");
             a.href = URL.createObjectURL(blob);
-            a.download = `attestpay-audit-${Date.now()}.csv`;
+            a.download = `keepercard-audit-${Date.now()}.csv`;
             a.click();
             URL.revokeObjectURL(a.href);
           }}

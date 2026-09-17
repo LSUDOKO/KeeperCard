@@ -54,11 +54,8 @@ const NAV: { group: string; items: { id: string; label: string }[] }[] = [
     ],
   },
   {
-    group: "Credit & Ops",
+    group: "Ops",
     items: [
-      { id: "credit", label: "Credit Lines" },
-      { id: "passport", label: "Credit Passport" },
-      { id: "disputes", label: "Disputes & Revocations" },
       { id: "webhooks", label: "Webhooks & Events" },
       { id: "teams", label: "Teams & Roles" },
       { id: "audit", label: "Audit Log" },
@@ -285,13 +282,13 @@ export default function DocsPage() {
               <div className="docfact">
                 <div className="fk">Dashboard</div>
                 <div className="fv">
-                  <span>attestpay (your deployment)</span>
+                  <span>keepercard (your deployment)</span>
                 </div>
               </div>
               <div className="docfact">
                 <div className="fk">API + MCP</div>
                 <div className="fv">
-                  <span>attestpay-api (your deployment)</span>
+                  <span>keepercard-api (your deployment)</span>
                 </div>
               </div>
               <div className="docfact">
@@ -437,7 +434,7 @@ export default function DocsPage() {
                   Works everywhere, including credential-free clients like claude.ai web. The URL is the password,
                   treat it like one.
                 </p>
-                <Code code={`claude mcp add --transport http attestpay \\
+                <Code code={`claude mcp add --transport http keepercard \\
   https://<host>/c/<card-secret>/mcp`} />
               </div>
               <div className="doclane">
@@ -446,7 +443,7 @@ export default function DocsPage() {
                   <span className="lt">Bearer header</span>
                 </div>
                 <p>For clients that send an Authorization header. The bare endpoint, secret in the header.</p>
-                <Code code={`claude mcp add --transport http attestpay \\
+                <Code code={`claude mcp add --transport http keepercard \\
   https://<host>/mcp \\
   --header "Authorization: Bearer <card-secret>"`} />
               </div>
@@ -461,21 +458,21 @@ export default function DocsPage() {
                   which card to grant. The agent receives a short-lived, card-scoped, independently revocable token,
                   never the raw secret. This is the lane OAuth-only clients such as ChatGPT require. Clients that
                   finish OAuth out of band read the code off the consent screen: OpenClaw completes with{" "}
-                  <code>openclaw mcp login attestpay --code &lt;code&gt;</code>, and headless Hermes uses the same
+                  <code>openclaw mcp login keepercard --code &lt;code&gt;</code>, and headless Hermes uses the same
                   paste-back.
                 </p>
-                <Code code={`claude mcp add --transport http attestpay https://<host>/mcp`} />
+                <Code code={`claude mcp add --transport http keepercard https://<host>/mcp`} />
               </div>
             </div>
 
             <h3>Per-harness one-liners (Lane A)</h3>
-            <Code code={`codex     mcp add attestpay --url https://<host>/c/<secret>/mcp
-openclaw  mcp add attestpay --url https://<host>/c/<secret>/mcp --transport streamable-http  # flag required: omitting it defaults to SSE
-hermes    mcp add attestpay --url "https://<host>/c/<secret>/mcp"
-gemini    mcp add -t http attestpay https://<host>/c/<secret>/mcp
+            <Code code={`codex     mcp add keepercard --url https://<host>/c/<secret>/mcp
+openclaw  mcp add keepercard --url https://<host>/c/<secret>/mcp --transport streamable-http  # flag required: omitting it defaults to SSE
+hermes    mcp add keepercard --url "https://<host>/c/<secret>/mcp"
+gemini    mcp add -t http keepercard https://<host>/c/<secret>/mcp
 goose     session --with-streamable-http-extension "https://<host>/c/<secret>/mcp"
-amp       mcp add attestpay https://<host>/c/<secret>/mcp
-droid     mcp add attestpay https://<host>/c/<secret>/mcp --type http`} />
+amp       mcp add keepercard https://<host>/c/<secret>/mcp
+droid     mcp add keepercard https://<host>/c/<secret>/mcp --type http`} />
             <p className="docp">
               Lanes A and B work in Cursor, VS Code, Gemini CLI, Windsurf, claude.ai custom connectors, or any MCP
               client that speaks Streamable HTTP. For claude.ai web, paste the card URL under Customize → Connectors →
@@ -680,80 +677,9 @@ droid     mcp add attestpay https://<host>/c/<secret>/mcp --type http`} />
           </Section>
 
           {/* ---- SigNoz Observability ---- */}
-          <Section id="credit" title="Credit Lines">
-            <p className="docp">
-              Verified payment history is worth something only if it unlocks capital. A credit line is a lender&apos;s
-              offer to an agent&apos;s funding account: a limit, a simple interest rate, an expiry. Both parties sign the
-              terms (EIP-712, domain-bound to the deployed <code>AttestPayCreditLine</code>), the server registers them on
-              Creditcoin, and from then on:
-            </p>
-            <ul className="docul">
-              <li className="docli">
-                <b>Draw.</b> The agent calls <code>draw_credit</code>. The server pays USDC from the lender&apos;s designated{" "}
-                <b>funding card</b> to the borrower&apos;s funding account through the ordinary <code>spend()</code> path — so the
-                lender&apos;s own card terms are the on-chain ceiling on Base, and the line&apos;s limit is the ceiling on
-                Creditcoin.
-              </li>
-              <li className="docli">
-                <b>Repay.</b> The agent calls <code>repay_credit</code>; USDC goes from its card to the lender&apos;s address within
-                the card&apos;s own terms. Repaying drawn + interest in full marks the line repaid on-chain.
-              </li>
-              <li className="docli">
-                <b>Prove.</b> Each draw and repayment is anchored on the attested source chain by <code>FactAnchor</code> and
-                proven into <code>AttestPayCreditLine</code>, which advances the line from the proven bytes. Same trust model
-                as payments: the anchor is proven, the anchorer asserts the Base transfer, the tx hash lets anyone check.
-              </li>
-              <li className="docli">
-                <b>Default.</b> A balance past expiry is a default (<code>markDefaulted</code>, permissionless). A late repayment
-                still clears it — the default stays on the record. <code>AttestPayGuarantee</code> lets anyone bond CTC behind a
-                borrower; a proven default is slashable in the lender&apos;s favour, which is how an agent with no history can
-                still be lent to.
-              </li>
-            </ul>
-            <Note>
-              Two deliberate departures from the Attestcoin protocol&apos;s <code>ASCLoanManager</code> example: terms are
-              signed under an EIP-712 domain with a per-lender nonce (the example&apos;s <code>abi.encodePacked</code> hash is
-              replayable across deployments), and registration is permissionless rather than <code>onlyOwner</code> — both
-              signatures are required, so it does not matter who submits.
-            </Note>
-          </Section>
-
-          <Section id="passport" title="Credit Passport">
-            <p className="docp">
-              <code>CreditPassport.passportOf(account)</code> composes everything Creditcoin knows about an agent&apos;s funding
-              account — verified payments and terms compliance, lines drawn / repaid / defaulted, disputes, CTC bonded
-              behind it — into one struct with a stable ABI, and computes the score on-chain from a published formula. Any
-              Creditcoin dApp can call it; nobody has to trust the dashboard&apos;s arithmetic.
-            </p>
-            <p className="docp">
-              Off-chain, <code>GET /passport/:address</code> is public and returns the same record with a <b>signed credential</b>
-              (EIP-191 over the key-sorted JSON payload, signed by the anchorer, 24h expiry). <code>POST /passport/verify</code>{" "}
-              or <code>KeeperCard.passport.verify()</code> in the SDK checks it with no RPC. The formula: payment count ×4 (max
-              40) + verified USDC ×3 (max 30) + history days (max 30), scaled by the within-terms rate where terms exist; then
-              +10 per repaid line (max 20), −25 per default, −10 per upheld dispute; clamped 0..100. A summary of public facts,
-              not a risk model.
-            </p>
-          </Section>
-
-          <Section id="disputes" title="Disputes & Revocations">
-            <p className="docp">
-              Payments are irreversible, so the recourse is a record. A dispute is opened against one confirmed payment (by the
-              owner, a team member, or the agent via <code>dispute_payment</code>), adjudicated by the operator (upheld /
-              rejected) or withdrawn by the opener, and — where <code>AttestPayLedger</code> is configured — proven into
-              Creditcoin at both ends. Upheld disputes count against the payer&apos;s passport; rejected ones are recorded but do
-              not.
-            </p>
-            <p className="docp">
-              Revocations are proven the same way. <code>AttestPayASC.revokeCardTerms</code> flips a flag; the ledger records{" "}
-              <b>when</b>, from attested bytes, so any counterparty can answer &ldquo;was this card live when it paid me?&rdquo;
-              with <code>wasRevokedAt(cardId, paidAt)</code> — without taking KeeperCard&apos;s word for it.
-            </p>
-          </Section>
-
           <Section id="webhooks" title="Webhooks & Events">
             <p className="docp">
-              Every card action, confirmed payment, verified or failed proof/fact, credit-line step, dispute and low-budget
-              alert is an event. Create webhooks in Settings or via <code>POST /api/webhooks</code>; each delivery is a JSON
+              Every card action, confirmed payment and low-budget alert is an event. Create webhooks in Settings or via <code>POST /api/webhooks</code>; each delivery is a JSON
               POST with <code>X-KeeperCard-Event</code>, <code>X-KeeperCard-Delivery</code> and{" "}
               <code>X-KeeperCard-Signature: t=&lt;unix&gt;,v1=&lt;hex&gt;</code>, where <code>v1</code> is HMAC-SHA256 over{" "}
               <code>{"${t}.${body}"}</code> with the secret shown once at creation. Retries: 30s, 2m, 10m, 1h, 6h, then dead
@@ -763,11 +689,7 @@ droid     mcp add attestpay https://<host>/c/<secret>/mcp --type http`} />
               head={["Event", "When"]}
               rows={[
                 [<code key="e">card.issued · frozen · unfrozen · revoked · nuked · deleted · secret_rotated</code>, "Card lifecycle"],
-                [<code key="e">charge.confirmed</code>, "A payment, draw or repayment confirmed on Base"],
-                [<code key="e">proof.verified · proof.failed</code>, "The payment's Attestcoin proof reached a terminal state"],
-                [<code key="e">fact.verified · fact.failed</code>, "A draw, repayment, dispute or revocation proof reached a terminal state"],
-                [<code key="e">credit_line.proposed · signed · opened · drawn · repaid</code>, "Credit-line lifecycle"],
-                [<code key="e">dispute.opened · dispute.resolved</code>, "Dispute lifecycle"],
+                [<code key="e">charge.confirmed</code>, "A payment confirmed on Base"],
                 [<code key="e">budget.low</code>, "Once per period when remaining budget ≤ the card's threshold (default 20%)"],
               ]}
             />
@@ -781,8 +703,8 @@ droid     mcp add attestpay https://<host>/c/<secret>/mcp --type http`} />
             <Table
               head={["Role", "May"]}
               rows={[
-                ["viewer", "Read cards, charges, proofs, credit, disputes"],
-                ["member", "+ freeze / unfreeze, open disputes, draw and repay credit, alert thresholds"],
+                ["viewer", "Read cards, charges and receipts"],
+                ["member", "+ freeze / unfreeze, alert thresholds"],
                 ["admin", "+ assign and unassign cards, manage members below owner"],
                 ["owner", "+ rename and delete the team"],
               ]}
@@ -803,19 +725,18 @@ droid     mcp add attestpay https://<host>/c/<secret>/mcp --type http`} />
 
           <Section id="sdk" title="SDK">
             <p className="docp">
-              <code>@attestpay/sdk</code> (<code>packages/sdk</code>) is a typed client over the whole API — cards, cross-chain
-              reads, credit, disputes, passport, guarantees, webhooks, events, audit, alerts, teams — plus the two pure verifiers
-              every integrator needs: <code>verifyWebhookSignature</code> (WebCrypto) and <code>verifyPassportCredential</code>{" "}
-              (EIP-191). Typed refusals arrive as <code>AttestPayError</code> with the server&apos;s code.
+              <code>@attestpay/sdk</code> (<code>packages/sdk</code>) is a typed client over the whole API — cards, KeeperHub
+              executions and receipts, webhooks, events, audit, alerts, teams — plus the pure verifier every integrator
+              needs: <code>verifyWebhookSignature</code> (WebCrypto). Typed refusals arrive as <code>AttestPayError</code>{" "}
+              with the server&apos;s code.
             </p>
             <pre className="doccode">{`import { KeeperCard } from "@attestpay/sdk";
 
-const ap = new KeeperCard({ baseUrl: "https://api.example.com", token: PRIVY_ACCESS_TOKEN });
-const { as_borrower } = await ap.credit.list();
-await ap.credit.draw(as_borrower[0].line_id, { card_id, amount: "4.00", idempotency_key: "draw-1" });
+const kc = new KeeperCard({ baseUrl: "https://api.example.com", token: PRIVY_ACCESS_TOKEN });
+const cards = await kc.cards.list();
+await kc.cards.freeze(cards[0].card_id);
 
-const passport = await ap.passport.get("0xAgentFundingAccount");
-const ok = await ap.passport.verify(passport.credential!, { expectedSigner: ANCHORER });`}</pre>
+const receipts = await kc.keeperhub.receipts(cards[0].card_id);`}</pre>
           </Section>
 
           <Section id="signoz-overview" title="SigNoz Observability">
@@ -827,7 +748,7 @@ const ok = await ap.passport.verify(passport.credential!, { expectedSigner: ANCH
 
             <h3>Architecture</h3>
             <div className="docdiagram">
-              {`attestpay-server (Bun ─preload otel.ts)
+              {`keepercard-server (Bun ─preload otel.ts)
    │
    ├─ @opentelemetry/auto-instrumentations-node
    │  · HTTP spans (every API call)
@@ -878,7 +799,7 @@ OTEL_LOGS_EXPORTER=otlp`} />
             <p className="docp">
               The Hono <code>app.use(&quot;*&quot;, ...)</code> middleware creates a span for every request, named{" "}
               <code>{'HTTP {METHOD} {ROUTE}'}</code>. Navigate to <b>SigNoz → Traces</b>, filter by{" "}
-              <code>service.name = attestpay-server</code>, and see every API call with its duration, status, and route
+              <code>service.name = keepercard-server</code>, and see every API call with its duration, status, and route
               pattern.
             </p>
 
@@ -924,11 +845,11 @@ OTEL_LOGS_EXPORTER=otlp`} />
             <Table
               head={["Metric Name", "Type", "Description"]}
               rows={[
-                [<code key="m">attestpay_cards_issued_total</code>, "Counter", "Total cards issued across all users (root + sub-cards). Increments on issue, finalize, and sub-card mint."],
-                [<code key="m">attestpay_usdc_spent_total</code>, "Counter", "Total USDC spent across all confirmed redemptions and fiat settlements. The dollar volume metric."],
-                [<code key="m">attestpay_active_cards</code>, "UpDownCounter", "Current live cards (issued − revoked). A gauge: add 1 on issue, subtract 1 on revoke/nuke."],
-                [<code key="m">attestpay_charges_total</code>, "Counter", "Total charges processed (confirmed + pending + failed). Payment throughput metric."],
-                [<code key="m">attestpay_errors_total</code>, "Counter", "Total API-level errors (403 refusals, 422 validation errors, 502 relay failures, 500 exceptions)."],
+                [<code key="m">keepercard_cards_issued_total</code>, "Counter", "Total cards issued across all users (root + sub-cards). Increments on issue, finalize, and sub-card mint."],
+                [<code key="m">keepercard_usdc_spent_total</code>, "Counter", "Total USDC spent across all confirmed redemptions and fiat settlements. The dollar volume metric."],
+                [<code key="m">keepercard_active_cards</code>, "UpDownCounter", "Current live cards (issued − revoked). A gauge: add 1 on issue, subtract 1 on revoke/nuke."],
+                [<code key="m">keepercard_charges_total</code>, "Counter", "Total charges processed (confirmed + pending + failed). Payment throughput metric."],
+                [<code key="m">keepercard_errors_total</code>, "Counter", "Total API-level errors (403 refusals, 422 validation errors, 502 relay failures, 500 exceptions)."],
               ]}
             />
 
@@ -949,7 +870,7 @@ OTEL_LOGS_EXPORTER=otlp`} />
          INTERVAL 5 MINUTE) AS ts,
        sum(value) AS value
 FROM signoz_metrics.distributed_samples_v2
-WHERE metric_name = 'attestpay_cards_issued_total'
+WHERE metric_name = 'keepercard_cards_issued_total'
   AND ts BETWEEN $start_datetime AND $end_datetime
 GROUP BY ts
 ORDER BY ts`} />
@@ -1004,7 +925,7 @@ ORDER BY ts`} />
          INTERVAL 5 MINUTE) AS ts,
        sum(value) AS value
 FROM signoz_metrics.distributed_samples_v2
-WHERE metric_name = 'attestpay_cards_issued_total'
+WHERE metric_name = 'keepercard_cards_issued_total'
   AND ts BETWEEN $start_datetime AND $end_datetime
 GROUP BY ts
 ORDER BY ts`} />
@@ -1015,7 +936,7 @@ ORDER BY ts`} />
             </p>
             <Code code={`SELECT sum(value) AS active_cards
 FROM signoz_metrics.distributed_samples_v2
-WHERE metric_name = 'attestpay_active_cards'
+WHERE metric_name = 'keepercard_active_cards'
   AND timestamp_ms > toUnixTimestamp(now()) * 1000 - 60000`} />
 
             <h3>Panel 3: USDC Spent</h3>
@@ -1027,7 +948,7 @@ WHERE metric_name = 'attestpay_active_cards'
          INTERVAL 5 MINUTE) AS ts,
        sum(value) AS value
 FROM signoz_metrics.distributed_samples_v2
-WHERE metric_name = 'attestpay_usdc_spent_total'
+WHERE metric_name = 'keepercard_usdc_spent_total'
   AND ts BETWEEN $start_datetime AND $end_datetime
 GROUP BY ts
 ORDER BY ts`} />
@@ -1041,7 +962,7 @@ ORDER BY ts`} />
          INTERVAL 5 MINUTE) AS ts,
        sum(value) AS errors
 FROM signoz_metrics.distributed_samples_v2
-WHERE metric_name = 'attestpay_errors_total'
+WHERE metric_name = 'keepercard_errors_total'
   AND ts BETWEEN $start_datetime AND $end_datetime
 GROUP BY ts
 ORDER BY ts`} />
@@ -1054,7 +975,7 @@ ORDER BY ts`} />
        attributes_string['http.route'] AS route,
        avg(durationNano) / 1000000 AS avg_ms
 FROM signoz_traces.distributed_signoz_index_v2
-WHERE resources_string['service.name'] = 'attestpay-server'
+WHERE resources_string['service.name'] = 'keepercard-server'
   AND ts BETWEEN $start_datetime AND $end_datetime
 GROUP BY ts, route
 ORDER BY ts`} />
@@ -1128,8 +1049,8 @@ claude mcp add signoz https://signoz.io/api/mcp \\
             <Table
               head={["Alert", "Condition", "Severity"]}
               rows={[
-                ["High Error Rate", <><code key="a">attestpay_errors_total</code> rate &gt; 10/min for 5 min</>, "Critical"],
-                ["No Cards Issued", <><code key="a">attestpay_cards_issued_total</code> has no new value for 30 min</>, "Warning"],
+                ["High Error Rate", <><code key="a">keepercard_errors_total</code> rate &gt; 10/min for 5 min</>, "Critical"],
+                ["No Cards Issued", <><code key="a">keepercard_cards_issued_total</code> has no new value for 30 min</>, "Warning"],
                 ["High API Latency", <>P99 HTTP duration &gt; 5000ms for 5 min</>, "Warning"],
                 ["Refusal Spike", <>Log count with <code>refusal_reason:*</code> &gt; 20/min</>, "Warning"],
                 ["Charge Failure", <><code>charge_event:confirmed</code> rate drops by 50% vs previous hour</>, "Critical"],
@@ -1215,12 +1136,6 @@ OTEL_LOGS_EXPORTER=otlp`} />
                 [<code key="p">POST /nuke/prepare · /finalize</code>, "Client-signed cascade nuke of every card"],
                 [<code key="p">DELETE /cards/:id</code>, "Bookkeeping removal of a dead card + its subtree"],
                 [<code key="p">GET /oauth/request · POST /oauth/approve · /deny</code>, "The card-picker consent backend"],
-                [<code key="p">POST /credit-lines · GET /credit-lines · GET /credit-lines/:id</code>, "Propose (returns EIP-712 typed data), list as lender/borrower, detail with events, facts and the chain's view"],
-                [<code key="p">POST /credit-lines/:id/sign · /draw · /repay · /settle · /slash</code>, "Per-party signature (second one registers on Creditcoin); draw and repay through spend(); lender/operator settle; slash a guarantee"],
-                [<code key="p">POST /cards/:id/disputes · GET /cards/:id/disputes · GET /disputes · POST /disputes/:id/resolve</code>, "Open, list, adjudicate (operator) or withdraw (opener)"],
-                [<code key="p">GET /cards/:id/passport · GET /passport/:address · POST /passport/verify</code>, "Owner view; the public passport with its signed credential; offline-equivalent verification"],
-                [<code key="p">GET /guarantees/:address · POST /guarantees/bond</code>, "CTC bonded behind an account; operator bonds from the anchorer key"],
-                [<code key="p">GET /cards/:id/attestcoin-facts · POST /attestcoin-facts/:id/retry</code>, "The facts pipeline per card; re-arm a failed fact"],
                 [<code key="p">POST /webhooks · GET /webhooks · DELETE /webhooks/:id · POST /webhooks/:id/test · /pause · GET /webhooks/:id/deliveries</code>, "Webhook CRUD, test delivery, delivery log and retry"],
                 [<code key="p">GET /events · GET /audit[?format=csv] · GET/PUT /cards/:id/alerts</code>, "Event outbox, audit export, budget-alert threshold"],
                 [<code key="p">POST /teams · GET /teams · GET/PATCH/DELETE /teams/:id · POST/DELETE /teams/:id/members · POST /cards/:id/team</code>, "Teams, membership by wallet address, card assignment"],

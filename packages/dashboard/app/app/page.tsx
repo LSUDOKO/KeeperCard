@@ -843,7 +843,7 @@ function IssueModal({
             {/* a card being born */}
             <div className="born">
               <div className={`minicard${filled ? " fill" : ""}`}>
-                <div className="mc-mark">attestpay</div>
+                <div className="mc-mark">keepercard</div>
                 <div className="mc-chip">
                   <ChipDots />
                 </div>

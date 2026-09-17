@@ -3,8 +3,7 @@
 // The landing page: a creative studio's moodboard for a payments product. One
 // centered hero (badge, display headline with a highlighted word, subhead, CTA
 // stack, backed-by strip), then sections that breathe at 80px: how a payment
-// works, the sticky-note feature grid, the credit story with a mock passport,
-// the connect block, the honesty note, a yellow closing band, a short footer.
+// works, the sticky-note feature grid, the connect block, a yellow closing band, a short footer.
 // Everything here is real copy about the real product; nothing links to "#".
 
 import Link from "next/link";
@@ -38,8 +37,8 @@ export function PublicNav({ links = true }: { links?: boolean }) {
             <a className="navlink" href="/#features">
               Product
             </a>
-            <a className="navlink" href="/#credit">
-              Credit
+            <a className="navlink" href="/#connect">
+              Connect
             </a>
             <Link className={`navlink${path?.startsWith("/docs") ? " on" : ""}`} href="/docs">
               Docs
@@ -83,8 +82,8 @@ export function Landing() {
           </motion.h1>
           <motion.p className="lpsub" variants={rise}>
             Issue a scoped, revocable spending card from your wallet. Any AI agent plugs it in over MCP and pays
-            within your limits — no keys, no gas, dead the moment you revoke. Every payment is proven onto
-            Creditcoin, building credit history the agent can borrow against.
+            within your limits — no keys, no gas, dead the moment you revoke. Every confirmed payment gets an
+            on-chain receipt written by KeeperHub.
           </motion.p>
           <motion.div className="lpctas" variants={rise}>
             <Link className="abtn primary big arrow" href="/app" data-testid="landing-cta">
@@ -103,8 +102,7 @@ export function Landing() {
             <span>ERC-7710</span>
             <span>EIP-7702</span>
             <span>x402</span>
-            <span>Creditcoin</span>
-            <span>Attestcoin</span>
+            <span>KeeperHub</span>
             <span>MCP</span>
             <span>SigNoz</span>
           </motion.div>
@@ -138,11 +136,11 @@ export function Landing() {
             },
             {
               n: "03",
-              t: "It pays, we prove it",
+              t: "It pays, with a receipt",
               p: (
                 <>
                   Each <code>pay</code> is checked against the terms, redeemed gaslessly on Base in USDC from your
-                  wallet, then anchored and <span className="hl">proven onto Creditcoin</span> — no oracle, no bridge.
+                  wallet, then KeeperHub writes an <span className="hl">on-chain receipt</span> (PaymentAnchor) on Base Sepolia.
                 </>
               ),
             },
@@ -167,59 +165,18 @@ export function Landing() {
             Freeze or revoke a card — or its whole sub-card tree — and every payment stops. Sub-cards nest tighter terms
             for sub-agents and die with their parent.
           </Note>
-          <Note k="Proof" tone="teal" title="Proven on Creditcoin" foot="Attestcoin Block Prover · 0x0FD2">
-            Every confirmed payment is anchored on an attested chain and verified by the Attestcoin precompile. The
-            facts are decoded from the proven bytes, so no relayer can alter them in flight.
+          <Note k="Receipt" tone="teal" title="A receipt for every payment" foot="PaymentAnchor · KeeperHub · Base Sepolia">
+            Every confirmed payment gets an on-chain receipt (PaymentAnchor) written by KeeperHub on Base Sepolia, so
+            anyone can check what was paid, to whom, and when.
           </Note>
           <Note k="Rails" title="Pays the open web" foot="x402 · Visa (test mode) · contract calls">
             <code>paid_fetch</code> settles HTTP 402 challenges automatically; a fiat lane buys over Visa rails; contract
             cards run scoped swaps and approvals atomically.
           </Note>
-          <Note k="Credit" tone="yellow" title="History that unlocks capital" foot="EIP-712 lines · CTC guarantees">
-            Lenders open credit lines to an agent's funding account. Draws and repayments are ordinary payments, proven
-            into a Creditcoin state machine; bonds in CTC stand behind agents with no history yet.
-          </Note>
           <Note k="Operate" title="Built to run, not to demo" foot="webhooks · teams · audit · SDK">
             Signed webhooks with retries, roles over shared cards, a CSV-exportable audit log, budget alerts, and a
             typed SDK. Every hop traced into SigNoz.
           </Note>
-        </div>
-      </Section>
-
-      {/* ---- credit ---- */}
-      <Section id="credit" eyebrow="Credit lines & the passport" title={<>A public record any dApp can <span className="hl">underwrite</span> against.</>}>
-        <div className="lpsplit" style={{ marginTop: 40 }}>
-          <div>
-            <p className="lplede">
-              <code>CreditPassport.passportOf(account)</code> composes an agent&apos;s verified payments, credit lines
-              drawn, repaid and defaulted, disputes, and the CTC bonded behind it — and scores it on-chain from a
-              published formula. Off-chain, the same record ships as a signed credential anyone can verify in one call.
-            </p>
-            <ul className="docul" style={{ marginTop: 20 }}>
-              <li className="docli">Both parties sign line terms under an EIP-712 domain; anyone may register them.</li>
-              <li className="docli">A draw pays from the lender&apos;s own card, so the chain enforces the ceiling twice.</li>
-              <li className="docli">Defaults are mechanical: a balance past expiry, provable, slashable in the lender&apos;s favour.</li>
-              <li className="docli">Disputes and revocations are proven with timestamps — &ldquo;was this card live when it paid me?&rdquo; has a checkable answer.</li>
-            </ul>
-          </div>
-          <motion.div className="mockpass" variants={rise} initial="hidden" whileInView="show" viewport={{ once: true, margin: "-60px" }}>
-            <SketchStar className="sk" size={64} />
-            <div className="mp-head">
-              <div>
-                <div className="mp-k">Credit passport</div>
-                <div className="mono" style={{ marginTop: 4, fontSize: 12, color: "var(--label)" }}>0x66b6…EC5a</div>
-              </div>
-              <span className="mp-grade">A</span>
-            </div>
-            <div className="mp-rows">
-              <div className="mp-row"><span>Score</span><b className="mp-score">92 / 100</b></div>
-              <div className="mp-row"><span>Verified payments</span><b>47 · 118.20 USDC</b></div>
-              <div className="mp-row"><span>Lines repaid / defaulted</span><b>3 / 0</b></div>
-              <div className="mp-row"><span>Disputes upheld</span><b>0</b></div>
-              <div className="mp-row"><span>Bonded behind</span><b>25.00 CTC</b></div>
-            </div>
-            <div className="mp-sig">signed · EIP-191 · anchorer 0x66b6082E…C4EC5a · expires in 24h</div>
-          </motion.div>
         </div>
       </Section>
 
@@ -251,25 +208,6 @@ claude mcp add --transport http remit https://<host>/mcp
             </p>
           </div>
         </div>
-
-        <div className="lphonest">
-          <div>
-            <h4>Proven, trustlessly</h4>
-            <p>
-              That a payment record with exactly these values was included in a block attested by the Attestcoin
-              network. The precompile checks the Merkle inclusion and continuity proofs in the same Creditcoin
-              transaction that records the result.
-            </p>
-          </div>
-          <div>
-            <h4>Not proven — and we say so</h4>
-            <p>
-              That the underlying Base transfer happened: the anchorer asserts it, and the Base transaction hash is
-              recorded so anyone can check. The day Attestcoin attests Base, the server picks it up from the registry
-              and this caveat disappears.
-            </p>
-          </div>
-        </div>
       </Section>
 
       {/* ---- closing band ---- */}
@@ -282,8 +220,8 @@ claude mcp add --transport http remit https://<host>/mcp
             <Link className="abtn primary big arrow" href="/app">
               Open the dashboard
             </Link>
-            <Link className="abtn big" href="/passport/0x66b6082Eb6c7a9457F25479fa35b6061F2c4EC5a">
-              See a live passport
+            <Link className="abtn big" href="/docs">
+              Read the docs
             </Link>
           </div>
         </motion.div>
@@ -305,7 +243,7 @@ claude mcp add --transport http remit https://<host>/mcp
               License
             </a>
           </nav>
-          <span className="fine">Base mainnet · Creditcoin CC3 testnet · built for the SigNoz hackathon</span>
+          <span className="fine">Base mainnet · receipts on Base Sepolia via KeeperHub · built for the SigNoz hackathon</span>
         </footer>
       </div>
     </div>

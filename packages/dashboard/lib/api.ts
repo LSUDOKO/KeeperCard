@@ -181,195 +181,6 @@ export type FiatCard = {
   cardholder_name?: string | null;
 };
 
-// ---------------------------------------------------------------------------
-// Attestcoin cross-chain verification
-// ---------------------------------------------------------------------------
-
-/** Where a payment has reached in the cross-chain proof pipeline. */
-export type ProofStatus =
-  | "pending"
-  | "anchoring"
-  | "anchored"
-  | "attested"
-  | "proving"
-  | "verified"
-  | "failed";
-
-/** One leg of a payment's journey, with the link that proves it. */
-export type ProofLeg = { tx_hash: string; explorer: string | null; height?: number | null };
-
-export type AttestcoinProofRow = {
-  charge_id: string;
-  status: ProofStatus;
-  amount: string | null;
-  merchant: string | null;
-  memo: string | null;
-  /** the USDC transfer on Base */
-  source: ProofLeg | null;
-  /** the anchor on the attested source chain */
-  anchor: ProofLeg | null;
-  /** the verification on Creditcoin */
-  creditcoin: ProofLeg | null;
-  verified_at: string | null;
-  error: string | null;
-  attempts: number;
-  created_at: string | null;
-};
-
-export type AttestcoinProofs = {
-  configured: boolean;
-  items: AttestcoinProofRow[];
-  stats: {
-    total: number;
-    verified: number;
-    failed: number;
-    inFlight: number;
-    avg_verify_seconds: number | null;
-  } | null;
-};
-
-export type CreditScore = {
-  configured: boolean;
-  reason?: string;
-  error?: string;
-  /** false when the figures came from the local cache because Creditcoin was down */
-  live?: boolean;
-  synced_at?: string | null;
-  payer?: string;
-  grade?: "A" | "B" | "C" | "D" | "F";
-  score?: number;
-  basis?: string;
-  total_verified_payments?: number;
-  total_verified_volume?: string;
-  first_payment_at?: string | null;
-  last_payment_at?: string | null;
-  within_terms_payments?: number;
-  terms_checked_payments?: number;
-  asc_explorer?: string;
-};
-
-export type AttestcoinHealth = {
-  configured: boolean;
-  chainKey: number | null;
-  latestAttestedHeight: number | null;
-  sourceHead: number | null;
-  /** null means "could not find out", which is NOT the same as zero lag */
-  attestationLagBlocks: number | null;
-  queue: Record<ProofStatus, number>;
-  creditcoinChainId: number | null;
-  ascAddress: string | null;
-  anchorAddress: string | null;
-  error?: string;
-};
-
-
-// ---------------------------------------------------------------------------
-// Credit lines, disputes, passport, guarantees, facts
-// ---------------------------------------------------------------------------
-
-export type CreditLineStatus = "proposed" | "signed" | "opening" | "open" | "active" | "repaid" | "defaulted" | "closed" | "failed";
-
-export type CreditLine = {
-  line_id: string;
-  status: CreditLineStatus;
-  lender: string;
-  borrower: string;
-  borrower_card_id: string | null;
-  funding_card_id: string;
-  limit: string;
-  interest_bps: number;
-  expires_at: string | null;
-  drawn: string;
-  repaid: string;
-  owed: string;
-  outstanding: string;
-  available: string;
-  signatures: { lender: boolean; borrower: boolean };
-  creditcoin_tx_hash: string | null;
-  creditcoin_explorer: string | null;
-  error: string | null;
-  created_at: string | null;
-};
-
-export type TypedDataWire = {
-  domain: { name: string; version: string; chainId: number; verifyingContract: string };
-  types: Record<string, Array<{ name: string; type: string }>>;
-  primaryType: string;
-  message: Record<string, string>;
-};
-
-export type Fact = {
-  fact_id: string;
-  kind: "draw" | "repayment" | "dispute_opened" | "dispute_resolved" | "card_revoked";
-  ref_id: string;
-  status: ProofStatus;
-  target: "credit_line" | "ledger";
-  anchor_tx_hash: string | null;
-  creditcoin_tx_hash: string | null;
-  creditcoin_explorer: string | null;
-  verified_at: string | null;
-  error: string | null;
-  attempts: number;
-  created_at: string | null;
-};
-
-export type CreditLineDetail = CreditLine & {
-  typed_data: TypedDataWire | null;
-  events: Array<{ kind: "draw" | "repayment"; charge_id: string; amount: string; charge_status: string | null; tx_hash: string | null; explorer: string | null; at: string | null }>;
-  facts: Fact[];
-  on_chain: Record<string, string | null> | null;
-  on_chain_error: string | null;
-};
-
-export type Dispute = {
-  dispute_id: string;
-  charge_id: string;
-  card_id: string;
-  status: "open" | "upheld" | "rejected" | "withdrawn";
-  reason: string;
-  resolution_note: string | null;
-  opened_by: string;
-  resolved_by: string | null;
-  opened_at: string | null;
-  resolved_at: string | null;
-  facts: Fact[];
-};
-
-export type PassportJson = {
-  account: string;
-  verified_payments: number;
-  verified_volume_usdc: string;
-  first_payment_at: string | null;
-  last_payment_at: string | null;
-  within_terms_payments: number;
-  terms_checked_payments: number;
-  lines_opened?: number;
-  lines_repaid?: number;
-  lines_defaulted?: number;
-  total_drawn_usdc?: string;
-  total_repaid_usdc?: string;
-  disputes_opened?: number;
-  disputes_upheld?: number;
-  disputes_rejected?: number;
-  disputed_volume_usdc?: string;
-  guarantee_bonded_ctc?: string;
-  score: number;
-  grade: string;
-  as_of?: string;
-};
-
-export type Passport = {
-  configured: boolean;
-  source?: string;
-  account: string;
-  passport?: PassportJson;
-  credential?: { payload: Record<string, unknown>; signature: string; signer: string; verification: string } | null;
-  local?: { credit_lines: CreditLine[]; disputes: Dispute[] } | null;
-  note?: string;
-  reason?: string;
-  contracts?: { passport: string; explorer: string };
-};
-
 export type Webhook = { webhook_id: string; url: string; events: string[]; description: string | null; active: boolean; created_at: string | null };
 export type Delivery = { delivery_id: string; event_type: string; status: string; attempts: number; next_attempt_at: string | null; last_status_code: number | null; last_error: string | null; created_at: string | null; delivered_at: string | null };
 export type EventRow = { id: string; type: string; card_id: string | null; data: Record<string, unknown>; created_at: string };
@@ -386,14 +197,6 @@ export type Team = {
 
 /** The server root (the API base without /api), for public routes. */
 export const API_ORIGIN = BASE.replace(/\/api\/?$/, "");
-
-/** Unauthenticated GET/POST against the server root (the passport is public). */
-export async function publicCall<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${API_ORIGIN}${path}`, { ...init, headers: { "content-type": "application/json", ...init?.headers }, cache: "no-store" });
-  const body = (await res.json().catch(() => null)) as (T & { error?: string }) | null;
-  if (!res.ok) throw new Error(body?.error ?? `http ${res.status}`);
-  return body as T;
-}
 
 // ---------------------------------------------------------------------------
 // KeeperHub — the execution layer
@@ -597,16 +400,6 @@ export const api = {
       body: JSON.stringify({ prepare_id: prepareId, signature }),
     }),
 
-  // --- Attestcoin cross-chain verification ---
-  attestcoinProofs: (id: string) => call<AttestcoinProofs>(`/cards/${id}/attestcoin-proofs`),
-  creditScore: (id: string) => call<CreditScore>(`/cards/${id}/credit-score`),
-  attestcoinHealth: () => call<AttestcoinHealth>("/attestcoin/health"),
-  verifyPayment: (id: string, chargeId: string) =>
-    call<{ queued: boolean; reason?: string; charge_id?: string; creditcoin_tx_hash?: string }>(
-      `/cards/${id}/attestcoin-verify`,
-      { method: "POST", body: JSON.stringify({ charge_id: chargeId }) },
-    ),
-
   // --- OAuth consent (the /connect card-picker page) ---
   oauthRequest: (id: string) =>
     call<{
@@ -626,36 +419,6 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ request_id: requestId }),
     }),
-  // --- credit lines ---
-  creditLines: () => call<{ configured: boolean; as_lender: CreditLine[]; as_borrower: CreditLine[] }>("/credit-lines"),
-  creditLine: (id: string) => call<CreditLineDetail>(`/credit-lines/${id}`),
-  proposeCreditLine: (input: { funding_card_id: string; borrower_card_id?: string; borrower_address?: string; limit: string; interest_bps: number; expires_at: number }) =>
-    call<CreditLineDetail>("/credit-lines", { method: "POST", body: JSON.stringify(input) }),
-  signCreditLine: (id: string, party: "lender" | "borrower", signature: string) =>
-    call<CreditLineDetail>(`/credit-lines/${id}/sign`, { method: "POST", body: JSON.stringify({ party, signature }) }),
-  drawCredit: (id: string, input: { card_id: string; amount: string; memo?: string }) =>
-    call<{ receipt: { status: string; tx: string | null }; charge_id: string; line: CreditLine }>(`/credit-lines/${id}/draw`, { method: "POST", body: JSON.stringify(input) }),
-  repayCredit: (id: string, input: { card_id: string; amount: string }) =>
-    call<{ receipt: { status: string; tx: string | null }; charge_id: string; line: CreditLine }>(`/credit-lines/${id}/repay`, { method: "POST", body: JSON.stringify(input) }),
-  settleCreditLine: (id: string, action: "default" | "close") =>
-    call<{ tx_hash: string; line: CreditLine }>(`/credit-lines/${id}/settle`, { method: "POST", body: JSON.stringify({ action }) }),
-
-  // --- disputes ---
-  disputes: (cardId: string) => call<{ configured: boolean; items: Dispute[] }>(`/cards/${cardId}/disputes`),
-  openDispute: (cardId: string, charge_id: string, reason: string) =>
-    call<Dispute>(`/cards/${cardId}/disputes`, { method: "POST", body: JSON.stringify({ charge_id, reason }) }),
-  resolveDispute: (id: string, outcome: "upheld" | "rejected" | "withdrawn", note?: string) =>
-    call<Dispute>(`/disputes/${id}/resolve`, { method: "POST", body: JSON.stringify({ outcome, note }) }),
-
-  // --- passport, guarantees, facts ---
-  passport: (cardId: string) => call<Passport>(`/cards/${cardId}/passport`),
-  publicPassport: (address: string) => publicCall<Passport>(`/passport/${address}`),
-  verifyPassport: (credential: { payload: Record<string, unknown>; signature: string }) =>
-    publicCall<{ valid: boolean; signer: string | null; expired: boolean; reason?: string; expected_signer: string | null }>("/passport/verify", { method: "POST", body: JSON.stringify(credential) }),
-  guarantee: (address: string) => call<{ configured: boolean; bonded_ctc: string | null; guarantors: Array<{ guarantor: string; bonded_ctc: string }> }>(`/guarantees/${address}`),
-  attestcoinFacts: (cardId: string) => call<{ configured: boolean; items: Fact[] }>(`/cards/${cardId}/attestcoin-facts`),
-  retryFact: (factId: string) => call<{ retried: boolean }>(`/attestcoin-facts/${factId}/retry`, { method: "POST", body: "{}" }),
-
   // --- webhooks, events, audit, alerts ---
   webhooks: () => call<{ configured: boolean; items: Webhook[]; event_types: string[] }>("/webhooks"),
   createWebhook: (input: { url: string; events: string[]; description?: string }) =>
