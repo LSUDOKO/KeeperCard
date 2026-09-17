@@ -20,6 +20,88 @@ the first request after idle takes ~50s to wake.
 
 ---
 
+**Contents:** [The problem](#the-problem) · [How a payment works](#how-a-payment-works) ·
+[The split](#the-split) · [KeeperHub usage](#how-much-of-keeperhub-this-uses) ·
+[Workflows](#the-workflows) · [Proof](#proof) · [Guardrails](#guardrails) ·
+[Agent tools](#what-an-agent-sees) · [Architecture](#architecture) ·
+[Getting started](#getting-started) · [Security](#security-model) · [Limitations](#known-limitations)
+
+---
+
+## The problem
+
+An AI agent that can pay for things is useful. An AI agent holding a private key is a
+liability. Today a team that wants its agent to buy API credits, datasets or compute has
+two options, and both are bad:
+
+1. **Give the agent a funded wallet.** One prompt injection, one hallucinated address,
+   one retry loop — and the whole balance is gone. There is no "limit", no "merchant
+   allowlist", no "undo".
+2. **Keep a human in the loop for every payment.** Safe, and it defeats the point of
+   having an agent.
+
+And even with a limit in place, *moving* the money is its own engineering problem:
+nonces, gas estimation, stuck transactions, retries that must not double-pay, an audit
+trail someone can actually check. Most agent-payment demos quietly hand-roll all of that.
+
+**KeeperCard splits the problem in two and gives each half to the right owner.**
+
+| Question | Owner | Mechanism |
+|---|---|---|
+| *What may this agent spend?* | **KeeperCard** | A card is an ERC-7710 delegation from your wallet: budget, period, expiry, merchant and sub-card rules, enforced **on-chain** by caveat enforcers. Funds never leave your wallet until a payment lands. Freeze, revoke or nuke at any time |
+| *How does the money actually move?* | **KeeperHub** | Every payment is a KeeperHub workflow: simulated first, then executed with managed nonces, gas sponsorship, retries, Turnkey signing, and a run history KeeperHub keeps — not us |
+
+The result: an agent can pay on its own, can never exceed its card, and every payment
+leaves three independent records — KeeperCard's ledger, KeeperHub's run history, and an
+on-chain receipt.
+
+---
+
+## How a payment works
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant A as AI agent (MCP)
+    participant C as KeeperCard
+    participant K as KeeperHub
+    participant B as Base Sepolia
+
+    A->>C: keeperhub_dry_run(to, amount)
+    C->>C: check card terms (budget, expiry, merchant)
+    C->>K: Chainlink USDC/USD — depeg guard
+    C->>K: simulate exact calldata (no chain touched)
+    C->>K: assess-risk (advisory)
+    C-->>A: plan_id · digest · gas · risk
+    A->>C: pay(plan_id)
+    C->>K: execute workflow with the SAME calldata (idempotency key = digest)
+    K->>B: DelegationManager.redeemDelegations — gas sponsored
+    B-->>K: receipt · 2 USDC transfers, 1 atomic tx
+    K-->>C: success + tx hash
+    C-->>A: confirmed
+    C->>K: payment-receipt-anchor workflow (background)
+    K->>B: PaymentAnchor.anchorPayment
+    B-->>K: PaymentAnchored event → fires receipt-event-watcher
+```
+
+1. **Dry run.** The agent asks to pay. KeeperCard checks the card's terms, builds the
+   exact redemption calldata, and has KeeperHub simulate it from the wallet that will
+   execute it. Nothing touches the chain. The agent gets a `plan_id`, a digest of the
+   calldata, a gas estimate and KeeperHub's risk read.
+2. **Pay.** The agent calls `pay(plan_id)`. KeeperCard refuses any digest that was not
+   dry-run within the plan's TTL, then hands the *same bytes* to a KeeperHub workflow.
+   The idempotency key is derived from the digest, so a retried send can only replay.
+3. **Execution.** KeeperHub manages the nonce, sponsors the gas, signs with its Turnkey
+   wallet and redeems the delegation. The DelegationManager enforces the card's caveats
+   on-chain; the merchant payment and the fee leg land in one atomic transaction.
+4. **Receipt.** In the background, a second KeeperHub workflow writes a `PaymentAnchored`
+   record on the same chain. That event fires a third workflow — started by the chain,
+   not by KeeperCard — that reads the receipts back.
+
+A failing or slow receipt can never delay, fail or roll back the payment it describes.
+
+---
+
 ## The split
 
 | | Owns |
@@ -116,20 +198,91 @@ books the charge as refused rather than confirmed.
 
 ---
 
-## Verified transactions
+## Proof
 
-All executed through KeeperHub on Base Sepolia, all checked against a public RPC rather
-than taken from KeeperHub's reply. Method and what each check rules out:
+Everything below is real and reproducible. Nothing is mocked.
+
+### In KeeperHub's own UI
+
+KeeperHub's Analytics page for this org — runs, success rate, and gas, almost all of it
+sponsored:
+
+![KeeperHub analytics](docs/screenshots/keeperhub-analytics.jpg)
+
+`guarded-card-payment` as KeeperHub renders it, and a real run of it — all four steps
+green, the write **gas-sponsored**:
+
+![guarded-card-payment canvas](docs/screenshots/keeperhub-guarded-workflow-canvas.jpg)
+![guarded-card-payment run](docs/screenshots/keeperhub-guarded-run-steps.jpg)
+
+`treasury-monitor` fired by KeeperHub's scheduler every ten minutes, with no involvement
+from KeeperCard:
+
+![treasury-monitor scheduled runs](docs/screenshots/keeperhub-treasury-scheduled-runs.jpg)
+
+KeeperHub's run table during a production payment. Read it bottom-up: risk read → card
+payment → receipt anchor → the event watcher the chain started:
+
+![KeeperHub runs table](docs/screenshots/keeperhub-runs-table.jpg)
+
+### In KeeperCard's dashboard
+
+The card an agent spent from, and the [execution console](https://keepercard-dashboard.adoranto737.workers.dev/keeperhub)
+— status, treasury read live through KeeperHub, the workflows, the execution timeline,
+and each payment linked to its on-chain receipt:
+
+![Card with settled payments](docs/screenshots/dashboard-card.jpg)
+![Console: status and treasury](docs/screenshots/console-status-treasury.jpg)
+![Console: workflows](docs/screenshots/console-workflows.jpg)
+![Console: executions and dry runs](docs/screenshots/console-executions.jpg)
+![Console: on-chain receipts](docs/screenshots/console-receipts.jpg)
+
+### On an independent explorer
+
+A production payment on Blockscout: `Success`, called through Turnkey's gas station (the
+sponsored route), two USDC transfers in one transaction. And the `PaymentAnchored` events
+held by the receipt contract, with the payer and merchant in the indexed topics:
+
+![Payment transaction](docs/screenshots/explorer-payment-tx.jpg)
+![PaymentAnchored events](docs/screenshots/explorer-receipt-events.jpg)
+
+### From a terminal — verify it yourself
+
+Three commands, three different sources of truth:
+
+```bash
+bun run --cwd packages/server keeperhub:doctor    # is the integration healthy?      (KeeperHub API)
+bun run --cwd packages/server keeperhub:history   # what did KeeperHub actually run? (KeeperHub's run history)
+bun run --cwd packages/server verify:onchain      # did the money really move?       (public RPC only — needs no API key)
+```
+
+![keeperhub:doctor](docs/screenshots/terminal-keeperhub-doctor.png)
+![keeperhub:history](docs/screenshots/terminal-keeperhub-history.png)
+![verify:onchain](docs/screenshots/terminal-onchain-verify.png)
+![bun test](docs/screenshots/terminal-tests.png)
+
+`verify:onchain` talks to neither KeeperHub nor KeeperCard. It fetches each receipt from
+`https://sepolia.base.org` and checks the status, the **log emitter** (USDC for a payment,
+`PaymentAnchor` for a receipt — on a sponsored route `receipt.to` is a wrapper, so it is
+not trusted) and the transfer amounts.
+
+### Verified transactions
+
+All executed through KeeperHub on Base Sepolia. Method and what each check rules out:
 [`docs/keeperhub/proof-of-execution.md`](docs/keeperhub/proof-of-execution.md).
 
-| What | Transaction |
-|---|---|
-| Card payment, `card-payment-redemption` workflow (run `7pzmtv7kr2ar9kpwcua08`) | [`0x54b1651c…f547b406`](https://sepolia.basescan.org/tx/0x54b1651ca19d7c557c028ef9d22949b609df4cff3dbdb3c4f3857e26f547b406) |
-| Card payment, `card-payment-redemption` | [`0x3c20c3d1…fe4d986b`](https://sepolia.basescan.org/tx/0x3c20c3d19a49a806bb95ecc9d3874cd73084368c3c22c54616d24205fe4d986b) |
-| ↳ its on-chain receipt, `payment-receipt-anchor` | [`0xaee6c910…bd55531e`](https://sepolia.basescan.org/tx/0xaee6c91062c90a332881ebf35780c2470a72e85ffd8bda78239d3465bd55531e) |
-| Card payment, **`guarded-card-payment`** (risk check inside KeeperHub) | [`0xc9368f9e…02fe0869`](https://sepolia.basescan.org/tx/0xc9368f9e49af1fc387f9ff2483cbb733ca5a53caacbc65fdd9a9913802fe0869) |
-| ↳ its on-chain receipt | [`0x9ac752e2…0f50b24219`](https://sepolia.basescan.org/tx/0x9ac752e24178a9604c122c4d61dec1cc48027bb7e5c3a9f66f41a70f50b24219) |
-| Direct USDC transfer, dry-run then execute | [`0x88a28cef…d945eb9`](https://sepolia.basescan.org/tx/0x88a28cef9cec59c8a7a298507ac2de19eac20e42b589dfb9734da9f15d945eb9) |
+| What | Where | Transaction |
+|---|---|---|
+| Card payment 0.02 USDC, paid by an agent over MCP | production | [`0xcdc5ef72…17b75ed6`](https://sepolia.basescan.org/tx/0xcdc5ef7216fe80fea61f82d55da7f53208c2c98206ad0213f0269a2c17b75ed6) |
+| ↳ its on-chain receipt | production | [`0x93a3f701…457615da`](https://sepolia.basescan.org/tx/0x93a3f70123e172a9e9f3f97ca8a1ac80654edfb961cf1e8a6bb133a6457615da) |
+| Card payment 0.05 USDC | production | [`0x28804b53…10ca40f7`](https://sepolia.basescan.org/tx/0x28804b5315f8ec86446bfdd62f7a30d76c157b13e33cb9ffedad8c0a10ca40f7) |
+| ↳ its on-chain receipt | production | [`0x95c4f1f9…d6451d3d`](https://sepolia.basescan.org/tx/0x95c4f1f940d227a307e6e853ce6f830e5c1b50e8a1fc9bbc9349c38cd6451d3d) |
+| Card payment, `card-payment-redemption` (run `7pzmtv7kr2ar9kpwcua08`) | production | [`0x54b1651c…f547b406`](https://sepolia.basescan.org/tx/0x54b1651ca19d7c557c028ef9d22949b609df4cff3dbdb3c4f3857e26f547b406) |
+| Card payment 0.02 USDC | local server, live KeeperHub | [`0x3c20c3d1…fe4d986b`](https://sepolia.basescan.org/tx/0x3c20c3d19a49a806bb95ecc9d3874cd73084368c3c22c54616d24205fe4d986b) |
+| ↳ its on-chain receipt | local | [`0xaee6c910…bd55531e`](https://sepolia.basescan.org/tx/0xaee6c91062c90a332881ebf35780c2470a72e85ffd8bda78239d3465bd55531e) |
+| Card payment 0.06 USDC, **`guarded-card-payment`** (risk check inside KeeperHub) | local | [`0xc9368f9e…02fe0869`](https://sepolia.basescan.org/tx/0xc9368f9e49af1fc387f9ff2483cbb733ca5a53caacbc65fdd9a9913802fe0869) |
+| ↳ its on-chain receipt | local | [`0x9ac752e2…0f50b24219`](https://sepolia.basescan.org/tx/0x9ac752e24178a9604c122c4d61dec1cc48027bb7e5c3a9f66f41a70f50b24219) |
+| Direct USDC transfer, dry-run then execute | local | [`0x88a28cef…d945eb9`](https://sepolia.basescan.org/tx/0x88a28cef9cec59c8a7a298507ac2de19eac20e42b589dfb9734da9f15d945eb9) |
 
 Each card payment is **two USDC transfers in one atomic transaction** — the merchant
 payment and the gas-fee leg — redeemed under the card's delegation, with the caveats
