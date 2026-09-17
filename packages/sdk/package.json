@@ -1,7 +1,7 @@
 {
   "name": "@attestpay/sdk",
   "version": "0.1.0",
-  "description": "Typed client for the AttestPay API: cards, credit lines, disputes, the credit passport, webhooks, teams and the audit log.",
+  "description": "Typed client for the KeeperCard API: cards, KeeperHub execution, webhooks, teams and the audit log.",
   "license": "MIT",
   "type": "module",
   "module": "src/index.ts",

@@ -1,18 +1,18 @@
-// @attestpay/sdk — a typed client for the AttestPay API.
+// @attestpay/sdk — a typed client for the KeeperCard API.
 //
-// One class, one `fetch`, no framework. Two things beyond the HTTP wrapper are
-// included because every integrator needs them and getting them subtly wrong is
-// easy: verifying a webhook signature, and verifying a credit-passport credential.
-// Both are pure functions that work in Node, Bun, browsers and workers.
+// One class, one `fetch`, no framework. One thing beyond the HTTP wrapper is
+// included because every integrator needs it and getting it subtly wrong is easy:
+// verifying a webhook signature. It is a pure function that works in Node, Bun,
+// browsers and workers.
 //
-//   const ap = new AttestPay({ baseUrl: "https://api.example.com", token: PRIVY_OR_ADMIN_TOKEN });
-//   const lines = await ap.credit.list();
-//   await ap.credit.draw(lines.as_borrower[0].line_id, { card_id, amount: "4.00" });
+//   const kc = new KeeperCard({ baseUrl: "https://api.example.com", token: PRIVY_OR_ADMIN_TOKEN });
+//   const cards = await kc.cards.list();
+//   const plan = await kc.keeperhub.dryRun(cards[0].card_id, { to: MERCHANT, amount: "4.00" });
 //
 // The ops token acts for a user by passing `userId`; a Privy access token is already
 // bound to its wallet and `userId` is ignored server-side.
 
-import { recoverMessageAddress, type Address, type Hex } from "viem";
+import type { Address } from "viem";
 
 // ---------------------------------------------------------------------------
 // Errors
@@ -69,129 +69,6 @@ export type CardDetail = CardState & { charges: Charge[]; k_agent_address: strin
 
 export type Receipt = { status: "confirmed" | "pending" | "failed" | "settlement_unconfirmed"; tx: string | null; to: string; amount: string; fee: string; remaining_this_period: string | null; memo?: string };
 
-export type ProofStatus = "pending" | "anchoring" | "anchored" | "attested" | "proving" | "verified" | "failed";
-
-export type CreditLineStatus = "proposed" | "signed" | "opening" | "open" | "active" | "repaid" | "defaulted" | "closed" | "failed";
-
-export type CreditLine = {
-  line_id: Hex;
-  status: CreditLineStatus;
-  lender: Address;
-  borrower: Address;
-  borrower_card_id: string | null;
-  funding_card_id: string;
-  limit: string;
-  interest_bps: number;
-  expires_at: string | null;
-  drawn: string;
-  repaid: string;
-  owed: string;
-  outstanding: string;
-  available: string;
-  signatures: { lender: boolean; borrower: boolean };
-  creditcoin_tx_hash: string | null;
-  creditcoin_explorer: string | null;
-  error: string | null;
-  created_at: string | null;
-  updated_at: string | null;
-};
-
-export type TypedData = {
-  domain: { name: string; version: string; chainId: number; verifyingContract: Address };
-  types: Record<string, Array<{ name: string; type: string }>>;
-  primaryType: "CreditLine";
-  message: Record<string, string>;
-};
-
-export type CreditLineDetail = CreditLine & {
-  typed_data: TypedData | null;
-  events: Array<{ kind: "draw" | "repayment"; charge_id: string; amount: string; charge_status: string | null; tx_hash: string | null; explorer: string | null; at: string | null }>;
-  facts: Fact[];
-  on_chain: Record<string, unknown> | null;
-  on_chain_error: string | null;
-};
-
-export type Fact = {
-  fact_id: string;
-  kind: "draw" | "repayment" | "dispute_opened" | "dispute_resolved" | "card_revoked";
-  ref_id: string;
-  status: ProofStatus;
-  target: "credit_line" | "ledger";
-  anchor_tx_hash: string | null;
-  anchor_height: number | null;
-  creditcoin_tx_hash: string | null;
-  creditcoin_explorer: string | null;
-  verified_at: string | null;
-  error: string | null;
-  attempts: number;
-  created_at: string | null;
-};
-
-export type CreditExec = { receipt: Receipt; charge_id: string; fact_id: string | null; line: CreditLine };
-
-export type DisputeStatus = "open" | "upheld" | "rejected" | "withdrawn";
-
-export type Dispute = {
-  dispute_id: string;
-  charge_id: string;
-  card_id: string;
-  status: DisputeStatus;
-  reason: string;
-  resolution_note: string | null;
-  opened_by: string;
-  resolved_by: string | null;
-  opened_at: string | null;
-  resolved_at: string | null;
-  facts: Fact[];
-};
-
-export type PassportJson = {
-  account: Address;
-  verified_payments: number;
-  verified_volume_usdc: string;
-  first_payment_at: string | null;
-  last_payment_at: string | null;
-  within_terms_payments: number;
-  terms_checked_payments: number;
-  lines_opened?: number;
-  lines_repaid?: number;
-  lines_defaulted?: number;
-  total_drawn_usdc?: string;
-  total_repaid_usdc?: string;
-  disputes_opened?: number;
-  disputes_upheld?: number;
-  disputes_rejected?: number;
-  disputed_volume_usdc?: string;
-  guarantee_bonded_ctc?: string;
-  score: number;
-  grade: string;
-  as_of?: string;
-};
-
-export type PassportCredentialPayload = {
-  type: "AttestPayCreditPassport";
-  version: "1";
-  issuer: string;
-  chain_id: number;
-  passport_contract: Address;
-  issued_at: string;
-  expires_at: string;
-  passport: PassportJson;
-};
-
-export type PassportCredential = { payload: PassportCredentialPayload; signature: Hex; signer: Address; verification: string };
-
-export type Passport = {
-  configured: boolean;
-  source?: string;
-  account: Address;
-  passport?: PassportJson;
-  credential?: PassportCredential | null;
-  local?: { credit_lines: CreditLine[]; disputes: Dispute[] } | null;
-  note?: string;
-  reason?: string;
-};
-
 export type Webhook = { webhook_id: string; url: string; events: string[]; description: string | null; active: boolean; created_at: string | null; updated_at: string | null };
 export type Delivery = { delivery_id: string; event_id: string; event_type: string; status: "pending" | "delivered" | "failed" | "dead"; attempts: number; next_attempt_at: string | null; last_status_code: number | null; last_error: string | null; created_at: string | null; delivered_at: string | null };
 export type EventRow = { id: string; type: string; user_id: string | null; card_id: string | null; data: Record<string, unknown>; created_at: string };
@@ -206,23 +83,6 @@ export type Team = {
   members: Array<{ user_id: string; role: TeamRole; added_by: string; since: string }>;
   cards: Array<{ card_id: string; name: string | null; status: string | null; owner: string | null }>;
   created_at: string;
-};
-
-export type AttestcoinHealth = {
-  configured: boolean;
-  chainKey: number | null;
-  chainKeySource: "env" | "registry" | null;
-  supportedChains: Array<{ chainKey: number; chainId: number; name: string; encoding: number }> | null;
-  paymentChainId: number | null;
-  paymentChainAttested: boolean | null;
-  latestAttestedHeight: number | null;
-  sourceHead: number | null;
-  attestationLagBlocks: number | null;
-  queue: Record<ProofStatus, number>;
-  factQueue: Record<ProofStatus, number>;
-  features: { credit: boolean; disputes: boolean; guarantee: boolean; passport: boolean };
-  contracts: Record<string, string | null>;
-  error?: string;
 };
 
 // ---------------------------------------------------------------------------
@@ -240,7 +100,7 @@ export type AttestPayOptions = {
   timeoutMs?: number;
 };
 
-export class AttestPay {
+export class KeeperCard {
   private readonly base: string;
   private readonly f: typeof fetch;
   private readonly timeoutMs: number;
@@ -312,54 +172,20 @@ export class AttestPay {
     assignTeam: (id: string, teamId: string | null) => this.post<{ card_id: string; team: { team_id: string; name: string } | null }>(`/api/cards/${id}/team`, { team_id: teamId }),
   };
 
-  // ---- cross-chain ----
-  readonly attestcoin = {
-    health: () => this.get<AttestcoinHealth>("/api/attestcoin/health"),
-    stats: () => this.get<Record<string, unknown>>("/api/attestcoin/stats"),
-    proofs: (cardId: string) => this.get<{ configured: boolean; items: Array<Record<string, unknown>>; stats: Record<string, unknown> | null }>(`/api/cards/${cardId}/attestcoin-proofs`),
-    verify: (cardId: string, chargeId: string) => this.post<{ queued: boolean; reason?: string }>(`/api/cards/${cardId}/attestcoin-verify`, { charge_id: chargeId }),
-    creditScore: (cardId: string) => this.get<Record<string, unknown>>(`/api/cards/${cardId}/credit-score`),
-    facts: (cardId: string) => this.get<{ configured: boolean; items: Fact[] }>(`/api/cards/${cardId}/attestcoin-facts`),
-    retryFact: (factId: string) => this.post<{ retried: boolean }>(`/api/attestcoin-facts/${factId}/retry`),
-  };
-
-  // ---- credit lines ----
-  readonly credit = {
-    propose: (input: { funding_card_id: string; borrower_card_id?: string; borrower_address?: Address; limit: string; interest_bps: number; expires_at: number }) =>
-      this.post<CreditLineDetail>("/api/credit-lines", input),
-    list: () => this.get<{ configured: boolean; as_lender: CreditLine[]; as_borrower: CreditLine[] }>("/api/credit-lines"),
-    get: (id: string) => this.get<CreditLineDetail>(`/api/credit-lines/${id}`),
-    sign: (id: string, party: "lender" | "borrower", signature: Hex) => this.post<CreditLineDetail>(`/api/credit-lines/${id}/sign`, { party, signature }),
-    draw: (id: string, input: { card_id: string; amount: string; memo?: string; idempotency_key?: string }) => this.post<CreditExec>(`/api/credit-lines/${id}/draw`, input),
-    repay: (id: string, input: { card_id: string; amount: string; memo?: string; idempotency_key?: string }) => this.post<CreditExec>(`/api/credit-lines/${id}/repay`, input),
-    settle: (id: string, action: "default" | "close") => this.post<{ tx_hash: string; explorer: string; line: CreditLine }>(`/api/credit-lines/${id}/settle`, { action }),
-    slash: (id: string) => this.post<{ tx_hash: string; explorer: string }>(`/api/credit-lines/${id}/slash`),
-  };
-
-  // ---- disputes ----
-  readonly disputes = {
-    open: (cardId: string, input: { charge_id: string; reason: string }) => this.post<Dispute>(`/api/cards/${cardId}/disputes`, input),
-    forCard: (cardId: string) => this.get<{ configured: boolean; items: Dispute[] }>(`/api/cards/${cardId}/disputes`),
-    list: (status?: DisputeStatus) => this.get<{ configured: boolean; items: Dispute[] }>(`/api/disputes${status ? `?status=${status}` : ""}`),
-    resolve: (id: string, outcome: Exclude<DisputeStatus, "open">, note?: string) => this.post<Dispute>(`/api/disputes/${id}/resolve`, { outcome, note }),
-  };
-
-  // ---- passport + guarantees ----
-  readonly passport = {
-    /** Public: no token needed. */
-    get: (address: Address) => this.call<Passport>("GET", `/passport/${address}`, undefined, { public: true }),
-    forCard: (cardId: string) => this.get<Passport>(`/api/cards/${cardId}/passport`),
-    /** Public: the server checks the signature against its anchorer. */
-    verifyRemote: (credential: { payload: PassportCredentialPayload; signature: Hex }) =>
-      this.call<{ valid: boolean; signer: Address | null; expired: boolean; reason?: string; expected_signer: Address | null }>("POST", "/passport/verify", credential, { public: true }),
-    /** Local: pure signature + expiry check, no network. */
-    verify: verifyPassportCredential,
-  };
-
-  readonly guarantees = {
-    get: (address: Address) => this.get<{ configured: boolean; address: Address; bonded_ctc: string | null; guarantors: Array<{ guarantor: Address; bonded_ctc: string; unbond_requested_at: string | null }> }>(`/api/guarantees/${address}`),
-    /** Ops lane only: bond from the server's anchorer key. */
-    bond: (borrower: Address, amountCtc: string) => this.post<{ tx_hash: string; explorer: string; bonded_ctc: string }>("/api/guarantees/bond", { borrower, amount_ctc: amountCtc }),
+  // ---- KeeperHub execution layer ----
+  readonly keeperhub = {
+    status: () => this.get<Record<string, unknown>>("/api/keeperhub/status"),
+    workflows: () => this.get<Record<string, unknown>>("/api/keeperhub/workflows"),
+    executions: (limit?: number) => this.get<Record<string, unknown>>(`/api/keeperhub/executions${query({ limit })}`),
+    execution: (executionId: string) => this.get<Record<string, unknown>>(`/api/keeperhub/executions/${executionId}`),
+    forCard: (cardId: string) => this.get<Record<string, unknown>>(`/api/cards/${cardId}/keeperhub`),
+    /** Simulates the payment and returns a plan; `execute` takes its `plan_id`. */
+    dryRun: (cardId: string, input: { to: string; amount: string; memo?: string; idempotency_key?: string }) =>
+      this.post<Record<string, unknown>>(`/api/cards/${cardId}/keeperhub/dry-run`, input),
+    execute: (cardId: string, input: { plan_id: string }) => this.post<Record<string, unknown>>(`/api/cards/${cardId}/keeperhub/execute`, input),
+    attestation: (blocks?: number) => this.get<Record<string, unknown>>(`/api/keeperhub/attestation${query({ blocks })}`),
+    treasury: () => this.get<Record<string, unknown>>("/api/keeperhub/treasury"),
+    receipts: (cardId: string) => this.get<Record<string, unknown>>(`/api/cards/${cardId}/receipts`),
   };
 
   // ---- webhooks, events, audit, alerts ----
@@ -414,7 +240,8 @@ function query(q: Record<string, string | number | boolean | undefined>): string
 // Webhook signatures (WebCrypto, so it runs anywhere)
 // ---------------------------------------------------------------------------
 
-/** Verifies `X-AttestPay-Signature: t=<unix>,v1=<hex>` over the raw request body. */
+/** Verifies the `x-keepercard-signature` header (`t=<unix>,v1=<hex>`) over the raw request
+ * body. Deliveries also carry `x-keepercard-event` and `x-keepercard-delivery`. */
 export async function verifyWebhookSignature(
   secret: string,
   header: string,
@@ -433,43 +260,4 @@ export async function verifyWebhookSignature(
   let diff = 0;
   for (let i = 0; i < expected.length; i++) diff |= expected.charCodeAt(i) ^ parts.v1.charCodeAt(i);
   return diff === 0;
-}
-
-// ---------------------------------------------------------------------------
-// Passport credentials
-// ---------------------------------------------------------------------------
-
-/** Key-sorted JSON: the canonical form the credential is signed over. */
-export function canonicalJson(value: unknown): string {
-  if (value === null || typeof value !== "object") return JSON.stringify(value) ?? "null";
-  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
-  const obj = value as Record<string, unknown>;
-  return `{${Object.keys(obj)
-    .sort()
-    .map((k) => `${JSON.stringify(k)}:${canonicalJson(obj[k])}`)
-    .join(",")}}`;
-}
-
-export type CredentialCheck = { valid: boolean; signer: Address | null; expired: boolean; reason?: string };
-
-/** Verifies a credit-passport credential locally: EIP-191 signature over the
- * canonical payload, optional expected signer (the AttestPay anchorer), expiry. */
-export async function verifyPassportCredential(
-  cred: { payload: PassportCredentialPayload; signature: Hex },
-  opts: { expectedSigner?: Address; now?: number } = {},
-): Promise<CredentialCheck> {
-  const now = opts.now ?? Math.floor(Date.now() / 1000);
-  let signer: Address;
-  try {
-    signer = await recoverMessageAddress({ message: canonicalJson(cred.payload), signature: cred.signature });
-  } catch {
-    return { valid: false, signer: null, expired: false, reason: "signature is malformed" };
-  }
-  const expired = Date.parse(cred.payload.expires_at) / 1000 < now;
-  if (opts.expectedSigner && signer.toLowerCase() !== opts.expectedSigner.toLowerCase()) {
-    return { valid: false, signer, expired, reason: `signed by ${signer}, expected ${opts.expectedSigner}` };
-  }
-  if (cred.payload.type !== "AttestPayCreditPassport") return { valid: false, signer, expired, reason: `unexpected type ${cred.payload.type}` };
-  if (expired) return { valid: false, signer, expired, reason: "credential has expired" };
-  return { valid: true, signer, expired: false };
 }
