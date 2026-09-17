@@ -72,7 +72,7 @@ if (resolution.error) warn(`could not look up workflows by name: ${resolution.er
 for (const s of resolution.stale) {
   bad(`${keeperhub.workflowEnvVar(s.key)}=${s.id} is stale (${s.found ? `that id is now "${s.found}"` : "no such workflow"}): remove it; the server ignores it and resolves by name`);
 }
-else if (resolution.resolved.length) ok(`${resolution.resolved.length} workflow(s) resolved by name: no workflow env vars needed`);
+if (resolution.resolved.length) ok(`${resolution.resolved.length} workflow(s) resolved by name: no workflow env vars needed`);
 
 // recovery and sweep are nothing but a schedule calling back into KeeperCard, so on a
 // plan without the `HTTP Request` action they cannot exist and KeeperCard keeps its own
