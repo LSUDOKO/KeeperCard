@@ -3,7 +3,7 @@
 //   bun run keeperhub:doctor
 //
 // 1. API key authenticates and resolves the org wallet
-// 2. settlement chain (and Sepolia for anchors) enabled in KeeperHub
+// 2. settlement chain enabled in KeeperHub
 // 3. org wallet has gas on those chains
 // 4. every configured KEEPERHUB_WORKFLOW_* exists, validates, and is enabled where scheduled
 // 5. KeeperHub's simulator answers (dry run of a read-only USDC call from the wallet)
@@ -11,7 +11,7 @@
 // 7. spend cap headroom
 
 import { createPublicClient, erc20Abi, formatEther, http, type Address } from "viem";
-import { base, baseSepolia, sepolia } from "viem/chains";
+import { base, baseSepolia } from "viem/chains";
 import { CHAIN_ID, CHAINS, keeperhub } from "@attestpay/engine";
 
 let failures = 0;
@@ -43,7 +43,8 @@ try {
 }
 
 const chains = await client.listChains().catch(() => []);
-const need = [CHAIN_ID as number, ...(config.workflows.anchor ? [keeperhub.ETHEREUM_SEPOLIA_CHAIN_ID] : [])];
+// receipts are anchored on the settlement chain itself, so there is only one to check
+const need = [CHAIN_ID as number];
 for (const id of need) {
   const c = chains.find((x) => x.chainId === id);
   if (c?.isEnabled) ok(`chain ${id} ${c.name} enabled${c.usePrivateMempoolRpc ? " · private mempool" : ""}`);
@@ -51,7 +52,7 @@ for (const id of need) {
 }
 
 if (wallet) {
-  const viemChains: Record<number, Parameters<typeof createPublicClient>[0]["chain"]> = { 8453: base, 84532: baseSepolia, 11155111: sepolia };
+  const viemChains: Record<number, Parameters<typeof createPublicClient>[0]["chain"]> = { 8453: base, 84532: baseSepolia };
   for (const id of need) {
     try {
       const pc = createPublicClient({ chain: viemChains[id], transport: http(id === CHAIN_ID ? process.env.ATTESTPAY_RPC_URL : undefined) });
@@ -64,7 +65,13 @@ if (wallet) {
   }
 }
 
-// recovery and settle are nothing but a schedule calling back into KeeperCard, so on a
+// Workflow ids are resolved by name, exactly as the server does at boot, so the doctor
+// reports what a deployment with no KEEPERHUB_WORKFLOW_* vars will actually run.
+const resolution = await keeperhub.resolveWorkflowIds(client, config);
+if (resolution.error) warn(`could not look up workflows by name: ${resolution.error}`);
+else if (resolution.resolved.length) ok(`${resolution.resolved.length} workflow(s) resolved by name: no workflow env vars needed`);
+
+// recovery and sweep are nothing but a schedule calling back into KeeperCard, so on a
 // plan without the `HTTP Request` action they cannot exist and KeeperCard keeps its own
 // timers. Absent is then correct, not a fault.
 const features = await client.features().catch(() => null);
@@ -80,22 +87,34 @@ if (features) {
 for (const key of keeperhub.KEEPERHUB_WORKFLOW_KEYS) {
   const id = config.workflows[key];
   const name = keeperhub.KEEPERHUB_WORKFLOW_NAMES[key];
-  const hookOnly = key === "recovery" || key === "settle";
+  const hookOnly = key === "recovery" || key === "sweep";
   if (!id) {
     if (hookOnly && !hooksEnabled) ok(`${name}: not on KeeperHub (needs Pro's HTTP Request) · KeeperCard runs its own timer`);
-    else (key === "pay" || key === "recovery" ? bad : warn)(`${name}: no workflow id configured (run keeperhub:provision)`);
+    else if (key === "notify") warn(`${name}: not provisioned (no notification integration configured)`);
+    else if ((key === "anchor" || key === "receipts") && !config.receiptAnchorAddress) warn(`${name}: not provisioned (KEEPERHUB_RECEIPT_ANCHOR_ADDRESS unset)`);
+    else (key === "pay" ? bad : warn)(`${name}: not found on KeeperHub (run keeperhub:provision)`);
     continue;
   }
   try {
     const wf = await client.getWorkflow(id);
     const v = await client.validateWorkflow(id).catch(() => null);
-    const scheduled = keeperhub.SCHEDULED_WORKFLOWS.has(key);
-    if (scheduled && wf.enabled === false) bad(`${name} (${id}) is DISABLED: its schedule will never fire`);
-    else ok(`${name} (${id}) exists${v ? " · validated" : ""}${scheduled ? " · schedule enabled" : ""}`);
+    const autonomous = keeperhub.AUTONOMOUS_WORKFLOWS.has(key);
+    const trig = keeperhub.KEEPERHUB_WORKFLOW_TRIGGERS[key];
+    if (autonomous && wf.enabled === false) bad(`${name} (${id}) is DISABLED: its ${trig} trigger will never fire`);
+    else ok(`${name} (${id}) · ${trig}${v ? " · validated" : ""}${wf.enabled === false ? " · disabled" : " · enabled"}`);
   } catch (e) {
     bad(`${name} (${id}): ${e instanceof Error ? e.message : String(e)}`);
   }
 }
+
+// what the dry run's depeg guard will see
+const usdcUsd = await client.priceFeed("usdc-usd", keeperhub.REFERENCE_FEED_CHAIN_ID).catch(() => null);
+if (!usdcUsd) warn("Chainlink USDC/USD could not be read through KeeperHub: the depeg guard will refuse nothing until it can");
+else if (config.depegFloor !== null && usdcUsd.price < config.depegFloor) bad(`USDC/USD reads ${usdcUsd.price.toFixed(4)}, below the ${config.depegFloor} floor: payments are being refused`);
+else ok(`Chainlink USDC/USD ${usdcUsd.price.toFixed(4)} · depeg floor ${config.depegFloor ?? "off"}`);
+
+if (config.receiptAnchorAddress) ok(`on-chain receipts → PaymentAnchor ${config.receiptAnchorAddress} on chain ${CHAIN_ID}`);
+else warn("KEEPERHUB_RECEIPT_ANCHOR_ADDRESS unset: payments will carry no on-chain receipt");
 
 if (wallet) {
   try {
