@@ -6,6 +6,7 @@
 // it loudly.
 
 import { isAddress, type Address } from "viem";
+import { CHAIN_ID, CHAINS } from "../chains";
 
 export const KEEPERHUB_ENV = {
   apiKey: "KEEPERHUB_API_KEY",
@@ -154,7 +155,9 @@ export function keeperhubConfig(env: Env = process.env): KeeperHubConfig | null 
     gasFeeUsdc: gasFee,
     gasLimitMultiplier: read(env, KEEPERHUB_ENV.gasLimitMultiplier) ?? "1.5",
     hookSecret: read(env, KEEPERHUB_ENV.hookSecret) ?? null,
-    receiptAnchorAddress: anchor && isAddress(anchor) ? (anchor as Address) : null,
+    // The env var overrides; otherwise the settlement chain's known deployment is used, so
+    // a deployment gets on-chain receipts without being told where the contract lives.
+    receiptAnchorAddress: anchor && isAddress(anchor) ? (anchor as Address) : ((CHAINS[CHAIN_ID] as { receiptAnchor?: Address }).receiptAnchor ?? null),
     guardedMinUsdc: guarded && /^\d+(\.\d{1,6})?$/.test(guarded) ? guarded : null,
     depegFloor: depegFloor(read(env, KEEPERHUB_ENV.depegFloor)),
   };

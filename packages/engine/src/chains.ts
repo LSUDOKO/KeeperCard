@@ -20,6 +20,8 @@ export const CHAINS = {
     relayer: "https://relayer.1shotapi.dev/relayers",
     targetAddress: "0xf1ef956eff4181Ce913b664713515996858B9Ca9" as Address,
     usdc: "0x036CbD53842c5426634e7929541eC2318f3dCF7e" as Address,
+    // PaymentAnchor, deployed 2026-09-17: where confirmed payments get their on-chain receipt
+    receiptAnchor: "0x56733223c688cce7fc65826b692b3f8521e4ab3e" as Address,
   },
 } as const;
 
