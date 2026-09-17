@@ -39,7 +39,7 @@ export const viewport: Viewport = {
 // seeds the first visit. Runs inline so dark mode never flashes light. Also
 // pins the theme-color meta (browser chrome tint) to the ACTIVE theme · the
 // toggle keeps it in sync afterwards.
-const themeInit = `(function(){var t="light";try{t=localStorage.getItem("attestpay-theme");if(t!=="dark"&&t!=="light"){t=window.matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light";}}catch(e){t="light";}document.documentElement.dataset.theme=t;var m=document.querySelector('meta[name="theme-color"]');if(!m){m=document.createElement("meta");m.setAttribute("name","theme-color");document.head.appendChild(m);}m.setAttribute("content",t==="dark"?"#142408":"#fcfaf5");})();`;
+const themeInit = `(function(){var t="light";try{t=localStorage.getItem("keepercard-theme");if(t!=="dark"&&t!=="light"){t=window.matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light";}}catch(e){t="light";}document.documentElement.dataset.theme=t;var m=document.querySelector('meta[name="theme-color"]');if(!m){m=document.createElement("meta");m.setAttribute("name","theme-color");document.head.appendChild(m);}m.setAttribute("content",t==="dark"?"#142408":"#fcfaf5");})();`;
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (

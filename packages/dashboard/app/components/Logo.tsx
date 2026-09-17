@@ -1,4 +1,4 @@
-// The logo lockup: a highlighter-yellow square carrying a hand-drawn "ap"
+// The logo lockup: a highlighter-yellow square carrying a hand-drawn "kc"
 // monogram in forest ink (rounded, deliberately imperfect strokes), followed by
 // the wordmark in Inter 700. One component, three sizes, used by every nav.
 
@@ -8,10 +8,10 @@ export function Monogram({ size = 36 }: { size?: number }) {
   return (
     <span className="lgmark" style={{ width: size, height: size }} aria-hidden>
       <svg viewBox="0 0 40 40" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round">
-        {/* a: a loose bowl with a tail that overshoots */}
-        <path d="M17.5 17.2c-2.4-1.6-6.4-.4-7.1 3.6-.6 3.6 2.1 6.4 5 5.6 2.1-.6 3-2.6 3.1-4.4M18.4 15.8c-.2 4.3-.1 8.2.4 10.4" />
-        {/* p: a stem that dips below, bowl slightly open */}
-        <path d="M23.2 16.1c.3 5.2.1 10.6-.6 15.4M23.4 18.2c1.4-2.4 5.5-2.7 6.7.9 1.1 3.3-1.3 6.9-4.6 6.4-1-.2-1.8-.9-2.4-1.6" />
+        {/* k: a tall stem, arm and leg meeting just off it */}
+        <path d="M12.2 10.6c.4 5.6.3 11.2-.3 16.6M19.6 16.4c-2.3 2.3-4.6 3.9-7.2 5.2 2.9 1.2 5.4 3 7.6 5.6" />
+        {/* c: an open bowl that stops short of closing */}
+        <path d="M30.4 18.6c-1.7-2.5-6.4-2.3-7.5 1.8-1 3.9 2.6 7.3 6.3 6 .8-.3 1.5-.8 2-1.4" />
       </svg>
     </span>
   );
