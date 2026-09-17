@@ -1,4 +1,4 @@
-// OAuth 2.1 storage for the MCP OAuth lane (fork B: remit self-hosts a minimal AS).
+// OAuth 2.1 storage for the MCP OAuth lane (fork B: KeeperCard self-hosts a minimal AS).
 // Rides the SAME bun:sqlite database as the engine store; all rows are protocol
 // plumbing, never money. Mirrors the card-secret custody rules:
 //   - tokens/codes are opaque 256-bit base64url strings, prefixed (glsp_at_ / glsp_rt_)

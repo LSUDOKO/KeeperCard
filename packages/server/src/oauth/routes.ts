@@ -1,5 +1,5 @@
 // OAuth 2.1 authorization-server lane for the MCP endpoint (fork B, locked Jun 7 2026
-// research call): remit self-hosts the BOUNDED AS profile — public clients only, PKCE
+// research call): KeeperCard self-hosts the BOUNDED AS profile — public clients only, PKCE
 // S256 only, auth-code + rotating refresh, DCR (RFC 7591), no CIMD day-1 — because the
 // heavyweight parts of a real AS (login, identity) are delegated to the already-shipped
 // Privy dashboard session, and tokens are opaque card-scoped rows in sqlite.

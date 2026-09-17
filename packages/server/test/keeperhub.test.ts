@@ -448,7 +448,7 @@ describe("7702 sponsor key parsing", () => {
     raw?.trim() ? (raw.trim().startsWith("0x") ? raw.trim() : `0x${raw.trim()}`) : undefined;
 
   test("a bare-hex key is accepted, because operators copy it from other key vars", () => {
-    // ATTESTPAY_ATTESTCOIN_PRIVATE_KEY is stored bare, so a copied sponsor key is too.
+    // Keys are often stored bare (no 0x), so a copied sponsor key is too.
     // Before normalisation this failed deep inside viem with "invalid private key",
     // far from the env var that caused it.
     const pk = normalise(BARE)!;

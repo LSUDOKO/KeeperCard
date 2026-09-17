@@ -286,7 +286,7 @@ describe("fiat charges + settlement mode", () => {
 // ---------------------------------------------------------------------------
 // ensureCardForRemitCard: every delegation IS a card · the client mints a
 // virtual test Visa on first need, reuses an existing link, and never mints
-// twice for one remit card (in-flight dedup).
+// twice for one KeeperCard card (in-flight dedup).
 // ---------------------------------------------------------------------------
 
 import { StripeClient } from "../src/stripe/client";
@@ -332,7 +332,7 @@ function mockStripeClient(state: MockState): StripeClient {
 }
 
 describe("ensureCardForRemitCard (auto-mint)", () => {
-  test("mints a Visa bound to the remit card when none is linked", async () => {
+  test("mints a Visa bound to the KeeperCard card when none is linked", async () => {
     const state: MockState = { cards: [], cardholders: [{ id: "ich_mock" }], posts: [] };
     const client = mockStripeClient(state);
     const ic = await client.ensureCardForRemitCard("card-aaa");
@@ -356,7 +356,7 @@ describe("ensureCardForRemitCard (auto-mint)", () => {
     expect(state.posts.length).toBe(0);
   });
 
-  test("concurrent ensures for one remit card mint exactly once", async () => {
+  test("concurrent ensures for one KeeperCard card mint exactly once", async () => {
     const state: MockState = { cards: [], cardholders: [{ id: "ich_mock" }], posts: [] };
     const client = mockStripeClient(state);
     const [a, b] = await Promise.all([

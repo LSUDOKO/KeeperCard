@@ -269,7 +269,7 @@ describe("dashboard api", () => {
 
 describe("fiat tools", () => {
   const FIAT_PAN = "4000000000000005"; // obviously-fake test PAN
-  const linked = new Map<string, string>(); // remit card id -> Issuing card id
+  const linked = new Map<string, string>(); // KeeperCard card id -> Issuing card id
 
   const fakeStripe = {
     authCalls: [] as Array<{ cardId: string; amountCents: number; merchantName: string }>,

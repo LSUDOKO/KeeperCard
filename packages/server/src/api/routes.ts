@@ -113,8 +113,6 @@ export function apiRoutes(deps: AppDeps, oauth: OAuthStore): Hono<ApiEnv> {
   const cascadeRevokeTokens = (cardId: string) => {
     for (const id of deps.store.subtreeIds(cardId)) {
       oauth.revokeTokensByCardId(id);
-      // Mirror the revocation into the Creditcoin terms registry, subtree-wide like
-      // the chain itself. Best-effort: the on-Base revocation is what stops spending.
     }
   };
   const cascadeRevokeUserTokens = (userId: string) => {

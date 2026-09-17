@@ -45,7 +45,7 @@ export function sellerRoutes(deps: AppDeps, facilitatorBase: () => string): Hono
     if (!sigHeader) {
       const paymentRequired = {
         x402Version: 2 as const,
-        resource: { url, description: "remit demo: premium agent dataset", mimeType: "application/json" },
+        resource: { url, description: "KeeperCard demo: premium agent dataset", mimeType: "application/json" },
         accepts: [requirement()],
       };
       c.header("PAYMENT-REQUIRED", encodePaymentRequiredHeader(paymentRequired as never));

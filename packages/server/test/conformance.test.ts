@@ -1,4 +1,4 @@
-// Harness-conformance suite (Jun 11 2026): pins remit's MCP surface against the verified
+// Harness-conformance suite (Jun 11 2026): pins KeeperCard's MCP surface against the verified
 // protocol fingerprints of every real client harness (report-mcp-harness-verify-2026-06-11
 // in project memory), so "works in <harness>" regressions surface here instead of in the
 // field. Three layers:
@@ -345,7 +345,7 @@ describe("authorization-code flows per harness shape", () => {
 
   test("goose (rmcp 1.7.0): DCR fallback shape — client_name goose, random loopback port, scope from metadata, public client", async () => {
     // source-verified: CIMD unsupported here => rmcp lands in register_client();
-    // this is the exact registration + flow it performs against remit
+    // this is the exact registration + flow it performs against KeeperCard
     const { body } = await fullFlow({
       clientName: "goose",
       redirectUris: ["http://127.0.0.1:41927/oauth_callback"],

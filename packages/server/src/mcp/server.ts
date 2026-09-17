@@ -45,10 +45,10 @@ import { recentFiatDecision } from "../stripe/decisions";
 const SERVER_INFO = { name: "keepercard", version: "0.18.0" };  // Surfaced to clients at initialize. Claude Code's tool search (default-on since mid-2026)
   // keys discovery on this text and truncates at 2KB: keep it a compact routing guide.
   const INSTRUCTIONS = [
-    "remit is the agent's spending card: a scoped, revocable spending authority granted by the card owner. The connection itself is the card; it holds no funds of its own and every action is checked against the card's terms (per-payment cap, period budget, expiry, allowlists).",
+    "KeeperCard is the agent's spending card: a scoped, revocable spending authority granted by the card owner. The connection itself is the card; it holds no funds of its own and every action is checked against the card's terms (per-payment cap, period budget, expiry, allowlists).",
     "Tools: `card` reports status, terms and remaining budget (check it before the first spend). `pay` sends USDC to a recipient or settles an x402 payment requirement. `paid_fetch` fetches an HTTP resource and pays its 402 challenge automatically. `execute` calls an allowlisted contract within the card's contract terms. `issue_subcard` mints a narrower child card for a sub-agent and returns its connection URL (treat it as a secret). `revoke_subcard` kills a child card and its descendants instantly. On fiat-linked cards, `fiat_pay` buys over Visa rails (simulated, test mode) from the same budget, `card_credentials` reveals the linked test Visa, `shop_products` lists the Stripe product catalog, and `shop_buy` purchases a product from the catalog using the linked Visa.",
-    "With cross-chain verification on, the card also has `verify_payment` (proof pipeline stage), `payment_receipt` (Base + anchor + Creditcoin receipt), `credit_score` (verified history on Creditcoin) and `cross_chain_status` (attestation lag, queue health). Verification takes minutes; a recent unverified payment is waiting, not broken. With credit on: `credit_lines`, `draw_credit` (the lender's card pays this account), `repay_credit`, `dispute_payment`, and `credit_passport` (signed on-chain standing).",
-    "Execution runs on KeeperHub: `keeperhub_dry_run` composes and simulates a payment without touching the chain and returns a plan_id; show it to your user, then `pay` with that plan_id executes exactly that plan. `keeperhub_execution_status` and `keeperhub_audit_trail` show how KeeperHub landed each payment.",
+    "Execution runs on KeeperHub: `keeperhub_dry_run` composes and simulates a payment without touching the chain and returns a plan_id; show it to your user, then `pay` with that plan_id executes exactly that plan. `keeperhub_execution_status` and `keeperhub_audit_trail` show how KeeperHub landed each payment. Payments at or above the operator's threshold run through a workflow whose risk check sits inside KeeperHub; a `risk_refused` or `usdc_depegged` refusal is a policy decision, not an outage.",
+    "`payment_receipt` returns the on-chain receipt KeeperHub writes after a payment confirms (the payment and the receipt, both linked); a receipt that is still `pending` right after a payment is normal. `treasury_status` reads, live through KeeperHub, whether the executing wallet has gas and whether USDC is on its peg: call it when a payment fails for a reason that is not about the card's own terms.",
     "A frozen card still answers `card` but refuses spends. Refusals name the violated term; read the message before retrying.",
   ].join("\n\n");
 
@@ -357,7 +357,7 @@ export function buildMcpServer(deps: AppDeps, card: CardRow): McpServer {
           "Make a Visa purchase with this card's linked virtual card (the fiat leg is SIMULATED: Stripe test-mode Issuing, no real merchant). The purchase is authorized in real time against the SAME budget as your crypto spends; declines carry a reason (over_period_limit, card_frozen, ...). When on-chain settlement is enabled, the approved charge settles as a real USDC transfer and the receipt carries the tx.",
         inputSchema: {
           amount: z.string().regex(/^\d+(\.\d{1,2})?$/).describe('USD amount, decimal string, e.g. "4.20"'),
-          merchant: z.string().min(1).max(80).optional().describe('merchant name on the authorization (default "remit demo merchant")'),
+          merchant: z.string().min(1).max(80).optional().describe('merchant name on the authorization (default "keepercard demo merchant")'),
         },
         annotations: { destructiveHint: true, openWorldHint: false },
       },
@@ -366,7 +366,7 @@ export function buildMcpServer(deps: AppDeps, card: CardRow): McpServer {
           // every delegation IS a card: mint the linked test Visa on first need
           const ic = await stripe.ensureCardForRemitCard(card.id);
           if (!ic) throw new RefusalError("no_fiat_card", "no test-mode Visa could be linked to this card (no cardholder on the stripe account)");
-          const merchantName = args.merchant ?? "remit demo merchant";
+          const merchantName = args.merchant ?? "keepercard demo merchant";
           // USD cents (schema caps at 2 decimals, so the atoms division is exact)
           const amountCents = Number(usdcToAtoms(args.amount) / 10_000n);
           const auth = await stripe.createTestAuthorization({ cardId: ic, amountCents, merchantName });
@@ -625,7 +625,6 @@ export function buildMcpServer(deps: AppDeps, card: CardRow): McpServer {
       async (args: { card_id: string }) =>
         run("revoke_subcard", card.id, async () => {
           agentRevokeSubcard(sd.store, card.id, args.card_id);
-          // mirror the kill into the Creditcoin terms registry, subtree-wide
           return { status: "revoked", card_id: args.card_id };
         }),
     );
