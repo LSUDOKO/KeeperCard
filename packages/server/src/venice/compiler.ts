@@ -22,7 +22,7 @@ import type { ChatFn } from "./client";
 import { extractJson } from "./client";
 import type { ResolvedEntity, Resolvers } from "./resolvers";
 
-const tracer = trace.getTracer("attestpay-server");
+const tracer = trace.getTracer("keepercard-server");
 
 // ---------------------------------------------------------------------------
 // The plan the model emits (named entities + numbers; NEVER trusted for addresses)

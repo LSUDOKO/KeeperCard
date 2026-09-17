@@ -16,12 +16,11 @@ import { OAuthStore } from "./oauth/store";
 import { sellerRoutes } from "./seller/routes";
 import { stripeRoutes } from "./stripe/routes";
 import { shopRoutes } from "./shop/routes";
-import { publicPassportRoutes } from "./attestcoin/credit-routes";
 import { keeperhubHookRoutes } from "./keeperhub/hooks";
 
 export function createApp(deps: AppDeps): Hono {
   const app = new Hono();
-  const otel = trace.getTracer("attestpay-server");
+  const otel = trace.getTracer("keepercard-server");
 
   // OpenTelemetry middleware: wraps every request in a root span with route pattern,
   // method, status code, and auth info. startActiveSpan makes it the ACTIVE span for
@@ -78,9 +77,6 @@ export function createApp(deps: AppDeps): Hono {
     }),
   );
 
-  // the credit passport is public by design (any origin may read and verify one)
-  app.use("/passport/*", cors({ origin: "*", allowHeaders: ["content-type"], allowMethods: ["GET", "POST", "OPTIONS"] }));
-  app.route("/", publicPassportRoutes(deps));
 
   app.route("/", oauthRoutes(deps, oauth));
   app.route("/", mcpRoutes(deps, oauth));

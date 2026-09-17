@@ -4,15 +4,16 @@
 
 import { Hono } from "hono";
 import type { Context } from "hono";
-import { RefusalError, encryptSecret, type CardRow } from "@attestpay/engine";
+import { RefusalError, encryptSecret, type CardRow, type UserRow } from "@attestpay/engine";
 import type { ApiEnv } from "../api/routes";
 import type { AppDeps } from "../deps";
 import { EVENT_TYPES, type AuditRow, type DeliveryRow, type EventType, type WebhookRow } from "./store";
 import { checkWebhookUrl, deliverWebhooks } from "./deliver";
-import type { Actor } from "../attestcoin/credit-routes";
 
 export type OwnedCardResolver = (c: Context<ApiEnv>, id: string, level?: "read" | "control" | "manage") => CardRow;
 export type Handle = (c: Context<ApiEnv>, fn: () => Promise<unknown>) => Promise<Response>;
+/** Who is acting: the ops token, or a Privy-bound user. */
+export type Actor = { kind: "admin"; userId: string } | { kind: "privy"; user: UserRow };
 export type ActorResolver = (c: Context<ApiEnv>, requestedUserId?: string) => Actor;
 
 const iso = (sec: number | null): string | null => (sec === null ? null : new Date(sec * 1000).toISOString());
@@ -104,7 +105,7 @@ export function eventRoutes(deps: AppDeps, ownedCard: OwnedCardResolver, handle:
       const body = (await c.req.json().catch(() => ({}))) as { userId?: string };
       const a = actor(c, body.userId);
       const w = ownedWebhook(a, c.req.param("id"));
-      const ev = b.events.insertEvent({ type: "webhook.test", user_id: w.user_id, card_id: null, data: { webhook_id: w.id, message: "hello from AttestPay" }, created_at: now() });
+      const ev = b.events.insertEvent({ type: "webhook.test", user_id: w.user_id, card_id: null, data: { webhook_id: w.id, message: "hello from KeeperCard" }, created_at: now() });
       const payload = JSON.stringify({ id: ev.id, type: ev.type, created_at: new Date(ev.created_at * 1000).toISOString(), card_id: null, data: ev.data });
       const d = b.events.enqueueDelivery({ webhook_id: w.id, event_id: ev.id, event_type: "webhook.test", payload_json: payload }, now());
       const r = await deliverWebhooks(b.events, { only: d.id });
@@ -185,7 +186,7 @@ export function eventRoutes(deps: AppDeps, ownedCard: OwnedCardResolver, handle:
         status: 200,
         headers: {
           "content-type": "text/csv; charset=utf-8",
-          "content-disposition": `attachment; filename="attestpay-audit-${now()}.csv"`,
+          "content-disposition": `attachment; filename="keepercard-audit-${now()}.csv"`,
         },
       });
     }

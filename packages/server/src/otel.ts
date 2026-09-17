@@ -12,7 +12,7 @@
 // The SDK passes env-var headers to ALL auto-detected exporters automatically,
 // so a single OTEL_EXPORTER_OTLP_HEADERS applies to traces, metrics, and logs.
 //
-// SigNoz dashboard labels: service.name = "attestpay-server"
+// SigNoz dashboard labels: service.name = "keepercard-server"
 
 import { diag, DiagConsoleLogger, DiagLogLevel } from "@opentelemetry/api";
 import { NodeSDK } from "@opentelemetry/sdk-node";
@@ -24,7 +24,7 @@ if (process.env.ATTESTPAY_OTEL_DEBUG === "1") {
 }
 
 const sdk = new NodeSDK({
-  serviceName: "attestpay-server",
+  serviceName: "keepercard-server",
   instrumentations: [
     getNodeAutoInstrumentations({
       // Disable noisy diagnostics: we add our own fine-grained spans
@@ -47,7 +47,7 @@ process.on("SIGTERM", () => {
 // until the SDK is ready.
 try {
   await sdk.start();
-  console.log("[otel] OpenTelemetry SDK started — service.name=attestpay-server");
+  console.log("[otel] OpenTelemetry SDK started — service.name=keepercard-server");
 } catch (err) {
   console.error("[otel] failed to start SDK", err);
 }

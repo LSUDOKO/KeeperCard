@@ -134,7 +134,7 @@ describe("teams over the API", () => {
 
   test("a viewer reads but cannot control; a member controls but cannot manage", async () => {
     // read
-    expect((await as(ALICE_ID)(`/api/cards/${cardId}/attestcoin-proofs`)).status).toBe(200);
+    expect((await as(ALICE_ID)(`/api/cards/${cardId}`)).status).toBe(200);
     expect((await as(ALICE_ID)(`/api/cards/${cardId}/alerts`)).status).toBe(200);
     // control: freeze
     expect((await post(ALICE_ID, `/api/cards/${cardId}/freeze`, {})).status).toBe(422);

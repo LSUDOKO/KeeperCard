@@ -10,7 +10,7 @@
 
 import { trace } from "@opentelemetry/api";
 
-const tracer = trace.getTracer("attestpay-server");
+const tracer = trace.getTracer("keepercard-server");
 
 export type ChatMessage = { role: "system" | "user" | "assistant"; content: string };
 

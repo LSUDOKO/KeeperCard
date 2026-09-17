@@ -1,7 +1,7 @@
 // Webhook delivery: signed POSTs with retry and a dead-letter state.
 //
 // Signature scheme (the one Stripe made everyone's default, so every consumer already
-// has code for it): `X-AttestPay-Signature: t=<unix>,v1=<hex hmac-sha256>` where the
+// has code for it): `X-KeeperCard-Signature: t=<unix>,v1=<hex hmac-sha256>` where the
 // signed string is `${t}.${body}` and the key is the webhook's secret. The timestamp
 // in the signature lets a receiver reject replays older than it likes.
 //
@@ -82,10 +82,10 @@ export async function deliverWebhooks(
         method: "POST",
         headers: {
           "content-type": "application/json",
-          "user-agent": "AttestPay-Webhooks/1",
-          "x-attestpay-event": d.event_type,
-          "x-attestpay-delivery": d.id,
-          "x-attestpay-signature": signWebhook(secret, ts, body),
+          "user-agent": "KeeperCard-Webhooks/1",
+          "x-keepercard-event": d.event_type,
+          "x-keepercard-delivery": d.id,
+          "x-keepercard-signature": signWebhook(secret, ts, body),
         },
         body,
         signal: AbortSignal.timeout(opts.timeoutMs ?? WEBHOOK_TIMEOUT_MS),

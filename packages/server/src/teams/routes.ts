@@ -8,7 +8,7 @@ import { isAddress } from "viem";
 import { RefusalError, type CardRow } from "@attestpay/engine";
 import type { ApiEnv } from "../api/routes";
 import type { AppDeps } from "../deps";
-import type { Actor } from "../attestcoin/credit-routes";
+import type { Actor } from "../events/routes";
 import { ROLE_RANK, TEAM_ROLES, type TeamRole, type TeamRow } from "./store";
 
 export type OwnedCardResolver = (c: Context<ApiEnv>, id: string, level?: "read" | "control" | "manage") => CardRow;

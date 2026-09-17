@@ -43,13 +43,11 @@ import {
   type Wire7702Auth,
 } from "@attestpay/engine";
 import type { AppDeps } from "../deps";
-import { registerTermsInBackground, revokeTermsInBackground } from "../deps";
 import { cardUrl } from "../mcp/server";
 import { appendRedirectParams } from "../oauth/routes";
 import type { OAuthStore } from "../oauth/store";
 import { onboardProofMessage } from "./privy";
-import { attestcoinRoutes } from "../attestcoin/routes";
-import { creditRoutes, type Actor } from "../attestcoin/credit-routes";
+import type { Actor } from "../events/routes";
 import { keeperhubRoutes } from "../keeperhub/routes";
 import { eventRoutes } from "../events/routes";
 import { teamRoutes } from "../teams/routes";
@@ -73,7 +71,7 @@ const tokenEqual = (a: string, b: string): boolean =>
 export type AuthCtx = { kind: "admin" } | { kind: "privy"; did: string };
 
 /** The Hono environment every /api route runs in. Exported so routers mounted under
- * this one (see attestcoin/routes.ts) share the exact same context type instead of
+ * this one (see keeperhub/routes.ts) share the exact same context type instead of
  * being cast into place. */
 export type ApiEnv = { Variables: { auth: AuthCtx } };
 
@@ -117,7 +115,6 @@ export function apiRoutes(deps: AppDeps, oauth: OAuthStore): Hono<ApiEnv> {
       oauth.revokeTokensByCardId(id);
       // Mirror the revocation into the Creditcoin terms registry, subtree-wide like
       // the chain itself. Best-effort: the on-Base revocation is what stops spending.
-      revokeTermsInBackground(deps, id);
     }
   };
   const cascadeRevokeUserTokens = (userId: string) => {
@@ -373,7 +370,6 @@ export function apiRoutes(deps: AppDeps, oauth: OAuthStore): Hono<ApiEnv> {
       // eager mint, fire-and-forget: the delegation is a two-rail card from birth
       if (deps.stripe) void deps.stripe.ensureCardForRemitCard(issued.cardId).catch(() => {});
       // same shape for the cross-chain terms registry: useful, never blocking
-      registerTermsInBackground(deps, issued.cardId);
       note(c, "card.issued", "card.issued", issued.cardId, { name: entry.prepared.name, lane: "client-signed" });
       return { card_id: issued.cardId, card_url: cardUrl(issued.secret), terms: issued.terms };
     }),
@@ -411,7 +407,6 @@ export function apiRoutes(deps: AppDeps, oauth: OAuthStore): Hono<ApiEnv> {
         { userId, name: body.name, terms: body.terms },
       );
       if (deps.stripe) void deps.stripe.ensureCardForRemitCard(issued.cardId).catch(() => {});
-      registerTermsInBackground(deps, issued.cardId);
       note(c, "card.issued", "card.issued", issued.cardId, { name: body.name, lane: "server-signed" });
       return { card_id: issued.cardId, card_url: cardUrl(issued.secret), terms: issued.terms };
     }),
@@ -791,21 +786,15 @@ export function apiRoutes(deps: AppDeps, oauth: OAuthStore): Hono<ApiEnv> {
     }),
   );
 
-  // ---- tree (the demo view's data) ----
-  // Attestcoin cross-chain verification routes. Mounted here so they inherit this
-  // router's auth middleware, and handed `ownedCard`/`handle` so card scoping and
-  // error mapping stay defined in exactly one place.
-  app.route("/", attestcoinRoutes(deps, ownedCard, handle));
-
-  // Credit lines, disputes, guarantees and the owner-side passport. Needs to know WHO
-  // is acting (a line has a lender and a borrower), so it also receives the actor
-  // resolver: the ops token picks a user like every other admin route, the Privy
-  // lane is pinned to its bound wallet.
+  // Sub-routers are mounted here so they inherit this router's auth middleware, and are
+  // handed `ownedCard`/`handle` so card scoping and error mapping stay defined in exactly
+  // one place. Some need to know WHO is acting, so they also receive the actor resolver:
+  // the ops token picks a user like every other admin route, the Privy lane is pinned to
+  // its bound wallet.
   const actor = (c: Context<{ Variables: { auth: AuthCtx } }>, requested?: string): Actor =>
     c.get("auth").kind === "admin"
       ? { kind: "admin", userId: normUserId(requested ?? "elpabl0-dev") }
       : { kind: "privy", user: boundUser(c) };
-  app.route("/", creditRoutes(deps, ownedCard, handle, actor));
   app.route("/", eventRoutes(deps, ownedCard, handle, actor));
   app.route("/", teamRoutes(deps, ownedCard, handle, actor));
   // KeeperHub execution layer: status, audit trail, reviewed plans (dry run -> execute)

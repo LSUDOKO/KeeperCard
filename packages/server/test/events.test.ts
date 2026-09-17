@@ -146,10 +146,10 @@ describe("webhooks over the API", () => {
 
     const r = await deliverWebhooks(events, { fetch: fakeFetch });
     expect(r.delivered).toBeGreaterThanOrEqual(1);
-    const hit = seen.find((s) => s.headers["x-attestpay-event"] === "card.frozen")!;
+    const hit = seen.find((s) => s.headers["x-keepercard-event"] === "card.frozen")!;
     expect(hit.url).toBe("http://localhost:9/hook");
     expect(hit.headers["content-type"]).toBe("application/json");
-    expect(verifyWebhookSignature(secret, hit.headers["x-attestpay-signature"]!, hit.body)).toBe(true);
+    expect(verifyWebhookSignature(secret, hit.headers["x-keepercard-signature"]!, hit.body)).toBe(true);
     const payload = JSON.parse(hit.body) as { type: string; card_id: string; data: { card_id: string } };
     expect(payload.type).toBe("card.frozen");
     expect(payload.card_id).toBe(card.cardId);

@@ -20,7 +20,7 @@ import { FEE_COLLECTOR, cardState, periodWindow, usdcToAtoms, usdcSpentTotal, em
 import type { AppDeps } from "../deps";
 import { recordFiatDecision } from "./decisions";
 
-const tracer = trace.getTracer("attestpay-server");
+const tracer = trace.getTracer("keepercard-server");
 
 const STRIPE_VERSION = "2025-03-31.basil";
 const TOLERANCE_S = 300;

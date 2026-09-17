@@ -17,7 +17,7 @@ const credentialsEqual = (a: string, b: string): boolean =>
   timingSafeEqual(createHash("sha256").update(a).digest(), createHash("sha256").update(b).digest());
 
 export const SHOP_MERCHANT = "s0nder supply co.";
-export const STRIPE_MERCHANT = "attestpay marketplace";
+export const STRIPE_MERCHANT = "keepercard marketplace";
 
 // demo pricing: everything at or under $5.00, because approved charges settle as
 // REAL on-chain USDC (price + ~0.011 relayer fee) from a lightly-funded demo wallet.
