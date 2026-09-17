@@ -11,6 +11,22 @@ These are those transactions, plus the checks that make them evidence rather tha
 
 ---
 
+## 0b. The same payment, executed by a provisioned workflow
+
+Once `KEEPERHUB_WORKFLOW_PAY` was set on the API, the redemption stopped falling back to a
+direct contract call and ran as a real workflow execution:
+
+| | |
+|---|---|
+| Tx | [`0x54b1651c…f547b406`](https://sepolia.basescan.org/tx/0x54b1651ca19d7c557c028ef9d22949b609df4cff3dbdb3c4f3857e26f547b406) |
+| KeeperHub run | `7pzmtv7kr2ar9kpwcua08` — `status: success` in KeeperHub's own execution history |
+| Workflow | `card-payment-redemption` (`o6iijkcr7tj83nj8ufbx6`) |
+| Block | 46942073 · `gasUsed` 474847 · `status` 0x1 |
+
+Two USDC transfers again, in one transaction: 0.010000 to the merchant and 0.010464 as the
+gas-fee leg. The distinction from §0 matters — this run is visible in KeeperHub's own
+workflow history, not only in KeeperCard's ledger.
+
 ## 0. A card payment: the full product path
 
 The one that matters most — an agent spending a scoped card, end to end, with KeeperHub
