@@ -99,6 +99,8 @@ export type WorkflowBuildOptions = {
   feedChainId?: number;
   /** USDC/USD below this trips the market-guard Condition (default 0.98). */
   depegFloor?: number;
+  /** How many blocks between fee-income samples (default 900, about half an hour on Base). */
+  feeBlockInterval?: number;
   /** Risk score at or above which guarded-card-payment refuses to redeem (default 90). */
   riskCeiling?: number;
   notify?: NotificationChannels;
@@ -443,18 +445,27 @@ function receiptsWorkflow(opts: WorkflowBuildOptions): WorkflowDefinition | null
   };
 }
 
-/** Fee income: every USDC transfer into the org wallet (the gas-fee leg of a payment). */
+/**
+ * Fee income, sampled from the chain on a Block trigger.
+ *
+ * KeeperHub's Transfer trigger is Tempo-only (TIP-20 TransferWithMemo), and an Event
+ * trigger on USDC's Transfer cannot filter by recipient, so it would fire on every USDC
+ * transfer on the chain. A Block trigger reading the wallet's balance is the honest
+ * version: the chain's own clock, and one cheap read.
+ */
 function feesWorkflow(opts: WorkflowBuildOptions, usdc: Address): WorkflowDefinition | null {
   if (!opts.orgWallet) return null;
   const network = String(opts.chainId);
+  // Base produces a block every ~2s: 900 blocks is about half an hour
+  const blockInterval = opts.feeBlockInterval ?? 900;
   return {
     name: KEEPERHUB_WORKFLOW_NAMES.fees,
-    description: `${MARKER} Chain-triggered: fires when USDC arrives in the KeeperHub wallet — the gas-fee leg every KeeperCard payment carries — and reads the wallet's running USDC balance, so fee income is tracked by KeeperHub from the chain rather than inferred from KeeperCard's ledger.`,
+    description: `${MARKER} Chain-clocked: every ${blockInterval} blocks, reads the USDC the KeeperHub wallet has collected — the gas-fee leg every KeeperCard payment carries — so fee income is tracked from the chain rather than inferred from KeeperCard's ledger.`,
     nodes: [
-      trigger("fee", "Fee Received", { triggerType: "Transfer", network, contractAddress: usdc, recipientAddress: opts.orgWallet }),
+      trigger("blocks", "Every N Blocks", { triggerType: "Block", network, blockInterval: String(blockInterval) }),
       action("balance", "Fee Balance", { actionType: "web3/check-token-balance", network, address: opts.orgWallet, tokenConfig: usdc }, 280),
     ],
-    edges: [edge("fee", "balance")],
+    edges: [edge("blocks", "balance")],
   };
 }
 

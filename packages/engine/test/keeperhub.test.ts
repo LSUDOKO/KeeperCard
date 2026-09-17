@@ -645,16 +645,19 @@ describe("workflow definitions", () => {
     expect(intoRedeem[0]!.sourceHandle).toBe("true");
   });
 
-  test("chain-triggered workflows: an Event trigger on the anchor, a Transfer trigger on the fee wallet", () => {
+  test("chain-triggered workflows: an Event trigger on the anchor, a Block trigger sampling fee income", () => {
     const defs = buildWorkflowDefinitions({ ...base, orgWallet: WALLET, paymentAnchorAddress: "0x881c55745372DfCB7dEC9B13F499b167164e2121" });
     const receipts = defs.receipts!.nodes[0]!.data.config;
     expect(receipts.triggerType).toBe("Event");
     expect(receipts.eventName).toBe("PaymentAnchored");
     expect(receipts.contractAddress).toBe("0x881c55745372DfCB7dEC9B13F499b167164e2121");
     const fees = defs.fees!.nodes[0]!.data.config;
-    expect(fees.triggerType).toBe("Transfer");
-    expect(fees.recipientAddress).toBe(WALLET);
-    expect(fees.contractAddress).toBe(CHAINS[8453].usdc);
+    // not a Transfer trigger: KeeperHub's is Tempo-only and would never fire on Base
+    expect(fees.triggerType).toBe("Block");
+    expect(fees.blockInterval).toBe("900");
+    const balance = defs.fees!.nodes[1]!.data.config;
+    expect(balance.address).toBe(WALLET);
+    expect(balance.tokenConfig).toBe(CHAINS[8453].usdc);
   });
 
   test("treasury monitor watches the org wallet, and the sponsor when there is one", () => {

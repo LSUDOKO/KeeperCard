@@ -32,7 +32,7 @@ export const DEFAULT_KEEPERHUB_MCP_URL = "https://app.keeperhub.com/mcp";
  * Four kinds, by what starts them:
  *   manual    pay · x402 · settle · guarded · anchor   — KeeperCard executes them per spend
  *   schedule  treasury · market                        — KeeperHub's own cron
- *   on-chain  receipts (Event) · fees (Transfer)       — KeeperHub watches the chain
+ *   on-chain  receipts (Event) · fees (Block)          — KeeperHub watches the chain
  *   callback  recovery · sweep · notify                — need a Pro action or an integration
  */
 export const KEEPERHUB_WORKFLOW_KEYS = [
@@ -67,14 +67,14 @@ export const KEEPERHUB_WORKFLOW_NAMES: Record<KeeperHubWorkflowKey, string> = {
 };
 
 /** What starts each workflow — shown in the dashboard and used by the provisioner. */
-export const KEEPERHUB_WORKFLOW_TRIGGERS: Record<KeeperHubWorkflowKey, "Manual" | "Schedule" | "Event" | "Transfer"> = {
+export const KEEPERHUB_WORKFLOW_TRIGGERS: Record<KeeperHubWorkflowKey, "Manual" | "Schedule" | "Event" | "Block"> = {
   pay: "Manual",
   x402: "Manual",
   settle: "Manual",
   guarded: "Manual",
   anchor: "Manual",
   receipts: "Event",
-  fees: "Transfer",
+  fees: "Block",
   treasury: "Schedule",
   market: "Schedule",
   recovery: "Schedule",
@@ -182,5 +182,4 @@ export function keeperhubDisabledReason(env: Env = process.env): string | null {
 export const DEPRECATED_INTERVAL_VARS = [
   "ATTESTPAY_RECONCILE_INTERVAL_MS",
   "ATTESTPAY_FIAT_SETTLE_INTERVAL_MS",
-  "ATTESTPAY_ATTESTCOIN_SWEEP_INTERVAL_MS",
 ] as const;
