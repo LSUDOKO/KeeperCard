@@ -24,6 +24,7 @@ import {
   keeperhubDisabledReason,
   parseKeeperHubRequestId,
   parsePlanContext,
+  KEEPERHUB_WORKFLOW_KEYS,
   attestAnchors,
   workflowKeyFor,
   type KeeperHubConfig,
@@ -141,14 +142,23 @@ function cfg(over: Partial<KeeperHubConfig> = {}): KeeperHubConfig {
     apiBase: "https://kh.test/api",
     mcpUrl: "https://kh.test/mcp",
     walletAddress: null,
-    workflows: { pay: null, recovery: null, settle: null, anchor: null, credit: null, notify: null },
+    workflows: noWorkflows(),
     dryRunRequired: true,
     planTtlSeconds: 600,
     gasFeeUsdc: "0.01",
     gasLimitMultiplier: "1.5",
     hookSecret: null,
+    receiptAnchorAddress: null,
+    guardedMinUsdc: null,
+    // the fake KeeperHub serves no price feed, and these tests are not about the guard
+    depegFloor: null,
     ...over,
   };
+}
+
+/** Every workflow key unset, so a test names only the ones it cares about. */
+function noWorkflows(over: Partial<KeeperHubConfig["workflows"]> = {}): KeeperHubConfig["workflows"] {
+  return { ...(Object.fromEntries(KEEPERHUB_WORKFLOW_KEYS.map((k) => [k, null])) as KeeperHubConfig["workflows"]), ...over };
 }
 
 function mkExecutor(api: FakeKeeperHub, over: Partial<KeeperHubConfig> = {}, store: KeeperHubStore | null = null) {
@@ -363,7 +373,7 @@ describe("KeeperHubExecutor", () => {
 
   test("executes through the pay workflow with the reviewed functionArgs and a digest idempotency key", async () => {
     const api = new FakeKeeperHub();
-    const ex = mkExecutor(api, { workflows: { pay: "wf_pay", recovery: null, settle: null, anchor: null, credit: "wf_credit", notify: null } });
+    const ex = mkExecutor(api, { workflows: noWorkflows({ pay: "wf_pay", x402: "wf_x402" }) });
     const txs = sampleTransactions();
     const est = await ex.estimate(txs);
     const id = await ex.send(txs, est.context!, undefined, { purpose: "pay", cardId: "c1", chargeId: "ch1" });
@@ -373,9 +383,19 @@ describe("KeeperHubExecutor", () => {
     expect(run.body.input.chargeId).toBe("ch1");
     expect(run.headers["idempotency-key"]).toContain(encodeRedemption(txs).digest);
 
-    const credit = await ex.send(txs, est.context!, undefined, { purpose: "credit" });
-    expect(credit).toBeTruthy();
-    expect(api.calls.some((c) => c.path === "/workflows/wf_credit/execute")).toBe(true);
+    // the raw calldata rides along for workflows that inspect it (guarded's risk node)
+    expect(run.body.input.calldata).toBe(encodeRedemption(txs).data);
+
+    // x402 has its own workflow, so paid-API traffic gets its own execution history
+    const x402 = await ex.send(txs, est.context!, undefined, { purpose: "x402" });
+    expect(x402).toBeTruthy();
+    expect(api.calls.some((c) => c.path === "/workflows/wf_x402/execute")).toBe(true);
+
+    // settle has none provisioned here: it falls back to `pay`, never to direct execution
+    const before = api.calls.filter((c) => c.path === "/workflows/wf_pay/execute").length;
+    await ex.send(txs, est.context!, undefined, { purpose: "settle" });
+    expect(api.calls.filter((c) => c.path === "/workflows/wf_pay/execute").length).toBe(before + 1);
+    expect(api.calls.some((c) => c.path === "/execute/contract-call" && c.body?.simulate !== true)).toBe(false);
 
     const st = await ex.getStatus(id);
     expect(st.status).toBe(200);
@@ -384,7 +404,7 @@ describe("KeeperHubExecutor", () => {
 
   test("workflow still running is 110, failed run is 500", async () => {
     const api = new FakeKeeperHub();
-    const ex = mkExecutor(api, { workflows: { pay: "wf_pay", recovery: null, settle: null, anchor: null, credit: null, notify: null } });
+    const ex = mkExecutor(api, { workflows: noWorkflows({ pay: "wf_pay" }) });
     const txs = sampleTransactions();
     const id = await ex.send(txs, (await ex.estimate(txs)).context!);
     api.workflowStatus = "running";
@@ -417,7 +437,7 @@ describe("KeeperHubExecutor", () => {
 describe("spend through KeeperHub", () => {
   test("pay: leaf delegated to the KeeperHub wallet, gas fee to the wallet, charge confirmed with KeeperHub tx", async () => {
     const api = new FakeKeeperHub();
-    const w = await mkWorld(api, { workflows: { pay: "wf_pay", recovery: null, settle: null, anchor: null, credit: null, notify: null } });
+    const w = await mkWorld(api, { workflows: noWorkflows({ pay: "wf_pay" }) });
     const receipt = await spend(w.deps, w.cardId, { kind: "pay", mode: "pay", to: MERCHANT, amountAtoms: 1_500_000n, memo: "coffee" });
     expect(receipt.status).toBe("confirmed");
     expect(receipt.tx).toBe(TX);
@@ -494,7 +514,7 @@ describe("spend through KeeperHub", () => {
 
   test("stuck-charge recovery settles a timed-out charge from KeeperHub status", async () => {
     const api = new FakeKeeperHub();
-    const w = await mkWorld(api, { workflows: { pay: "wf_pay", recovery: null, settle: null, anchor: null, credit: null, notify: null } });
+    const w = await mkWorld(api, { workflows: noWorkflows({ pay: "wf_pay" }) });
     api.workflowStatus = "running";
     // the inline confirmation times out: waitForStatus deadline is driven by the fake clock
     const slow = new KeeperHubExecutor({
@@ -527,16 +547,31 @@ describe("spend through KeeperHub", () => {
 describe("workflow routing", () => {
   test("each purpose selects the workflow whose history should record it", () => {
     expect(workflowKeyFor("pay")).toBe("pay");
-    expect(workflowKeyFor("credit")).toBe("credit");
-    // regression: `settle` used to fall through to `pay`, so KEEPERHUB_WORKFLOW_SETTLE
+    expect(workflowKeyFor(undefined)).toBe("pay");
+    // regression: `settle` used to fall through to `pay`, so the settlement workflow
     // was provisioned and then never executed against.
     expect(workflowKeyFor("settle")).toBe("settle");
+    // paid-API traffic gets its own execution history
+    expect(workflowKeyFor("x402")).toBe("x402");
+    expect(workflowKeyFor("admin")).toBe("pay");
   });
 
-  test("x402 and admin redemptions ride the pay workflow", () => {
-    expect(workflowKeyFor("x402")).toBe("pay");
-    expect(workflowKeyFor("admin")).toBe("pay");
-    expect(workflowKeyFor(undefined)).toBe("pay");
+  test("a payment at or above the guarded threshold runs through guarded-card-payment", () => {
+    const guardedMinAtoms = 1_000_000n;
+    expect(workflowKeyFor("pay", { amountAtoms: 999_999n, guardedMinAtoms })).toBe("pay");
+    expect(workflowKeyFor("pay", { amountAtoms: 1_000_000n, guardedMinAtoms })).toBe("guarded");
+    // an unknown amount is never treated as zero OR as large: it stays on the plain path
+    expect(workflowKeyFor("pay", { guardedMinAtoms })).toBe("pay");
+    // no threshold configured = the guard is off
+    expect(workflowKeyFor("pay", { amountAtoms: 10n ** 12n, guardedMinAtoms: null })).toBe("pay");
+  });
+
+  test("only agent-initiated payments are ever upgraded to the guarded workflow", () => {
+    // a settlement or an x402 charge was authorised elsewhere; refusing it late strands it
+    const big = { amountAtoms: 10n ** 12n, guardedMinAtoms: 1n };
+    expect(workflowKeyFor("settle", big)).toBe("settle");
+    expect(workflowKeyFor("x402", big)).toBe("x402");
+    expect(workflowKeyFor("admin", big)).toBe("pay");
   });
 });
 
@@ -561,12 +596,17 @@ describe("workflow definitions", () => {
     for (const def of Object.values(defs)) for (const n of def?.nodes ?? []) expect(n.data.label.includes(":")).toBe(false);
   });
 
-  test("scheduled sweeps and optional workflows", () => {
+  test("callback sweeps and optional workflows", () => {
     const defs = buildWorkflowDefinitions(base);
     expect(defs.recovery!.nodes[0]!.data.config.scheduleCron).toBe("*/5 * * * *");
-    expect(defs.settle!.nodes[0]!.data.config.triggerType).toBe("Schedule");
+    expect(defs.sweep!.nodes[0]!.data.config.triggerType).toBe("Schedule");
+    // no anchor address: neither the receipt writer nor its chain-triggered watcher
     expect(defs.anchor).toBeNull();
+    expect(defs.receipts).toBeNull();
     expect(defs.notify).toBeNull();
+    // no org wallet: nothing for the treasury and fee workflows to watch
+    expect(defs.treasury).toBeNull();
+    expect(defs.fees).toBeNull();
 
     const full = buildWorkflowDefinitions({
       ...base,
@@ -574,10 +614,69 @@ describe("workflow definitions", () => {
       notify: { discordIntegrationId: "int_discord", webhookUrl: "https://hooks.test/x" },
     });
     const anchor = full.anchor!.nodes.find((n) => n.id === "anchor")!;
-    expect(anchor.data.config.network).toBe("11155111");
+    // the receipt is written on the SETTLEMENT chain, where the payment it describes happened
+    expect(anchor.data.config.network).toBe("8453");
     expect(anchor.data.config.abiFunction).toBe("anchorPayment");
     expect(full.notify!.nodes.map((n) => n.id)).toEqual(["event", "notify-discord", "notify-webhook"]);
     expect(full.recovery!.edges.some((e) => e.sourceHandle === "true")).toBe(true);
+  });
+
+  test("x402 and fiat settlement are the same redemption under their own names", () => {
+    const defs = buildWorkflowDefinitions(base);
+    expect(defs.x402!.name).toBe("x402-settlement");
+    expect(defs.settle!.name).toBe("fiat-settlement");
+    for (const key of ["x402", "settle"] as const) {
+      const redeem = defs[key]!.nodes.find((n) => n.id === "redeem")!;
+      expect(redeem.data.config.abiFunction).toBe("redeemDelegations");
+      expect(defs[key]!.nodes[0]!.data.config.triggerType).toBe("Manual");
+    }
+  });
+
+  test("guarded payment: the write is only reachable through the risk Condition's true branch", () => {
+    const g = buildWorkflowDefinitions({ ...base, orgWallet: WALLET, riskCeiling: 80 }).guarded!;
+    expect(g.nodes.map((n) => n.id)).toEqual(["redemption-request", "risk", "acceptable", "redeem"]);
+    expect(g.nodes.find((n) => n.id === "risk")!.data.config.actionType).toBe("web3/assess-risk");
+    expect(g.nodes.find((n) => n.id === "risk")!.data.config.calldata).toBe("{{@redemption-request:Redemption Request.calldata}}");
+    expect(g.nodes.find((n) => n.id === "acceptable")!.data.config.condition).toBe("{{@risk:Assess Risk.riskScore}} < 80");
+    // exactly one edge leads to the write, and it is the Condition's `true` handle
+    const intoRedeem = g.edges.filter((e) => e.target === "redeem");
+    expect(intoRedeem).toHaveLength(1);
+    expect(intoRedeem[0]!.source).toBe("acceptable");
+    expect(intoRedeem[0]!.sourceHandle).toBe("true");
+  });
+
+  test("chain-triggered workflows: an Event trigger on the anchor, a Transfer trigger on the fee wallet", () => {
+    const defs = buildWorkflowDefinitions({ ...base, orgWallet: WALLET, paymentAnchorAddress: "0x881c55745372DfCB7dEC9B13F499b167164e2121" });
+    const receipts = defs.receipts!.nodes[0]!.data.config;
+    expect(receipts.triggerType).toBe("Event");
+    expect(receipts.eventName).toBe("PaymentAnchored");
+    expect(receipts.contractAddress).toBe("0x881c55745372DfCB7dEC9B13F499b167164e2121");
+    const fees = defs.fees!.nodes[0]!.data.config;
+    expect(fees.triggerType).toBe("Transfer");
+    expect(fees.recipientAddress).toBe(WALLET);
+    expect(fees.contractAddress).toBe(CHAINS[8453].usdc);
+  });
+
+  test("treasury monitor watches the org wallet, and the sponsor when there is one", () => {
+    const without = buildWorkflowDefinitions({ ...base, orgWallet: WALLET }).treasury!;
+    expect(without.nodes.map((n) => n.id)).toEqual(["tick", "gas", "usdc", "low"]);
+    const withSponsor = buildWorkflowDefinitions({ ...base, orgWallet: WALLET, sponsorWallet: MERCHANT }).treasury!;
+    expect(withSponsor.nodes.map((n) => n.id)).toEqual(["tick", "gas", "usdc", "sponsor", "low"]);
+    expect(withSponsor.nodes.find((n) => n.id === "low")!.data.config.condition).toBe("{{@gas:Org Wallet Gas.balance}} < 0.0001");
+  });
+
+  test("market guard reads the feeds on the reference chain and scales the floor to the feed's 18 decimals", () => {
+    const m = buildWorkflowDefinitions({ ...base, chainId: 84532, depegFloor: 0.98 }).market;
+    const usdc = m!.nodes.find((n) => n.id === "usdc")!.data.config;
+    // Base Sepolia has no USDC/USD feed; the read is free, so the mainnet reference is used
+    expect(usdc.network).toBe("8453");
+    expect(JSON.parse(String(usdc._protocolMeta))).toEqual({
+      protocolSlug: "chainlink",
+      contractKey: "usdcUsd",
+      functionName: "latestRoundData",
+      actionType: "chainlink/usdc-usd-latest-round-data",
+    });
+    expect(m!.nodes.find((n) => n.id === "depeg")!.data.config.condition).toBe("{{@usdc:USDC USD Feed.answer}} < 980000000000000000");
   });
 
   test("rejects weak hook secrets and relative base URLs", () => {
@@ -590,7 +689,7 @@ describe("workflow definitions", () => {
 
     test("value-moving workflows keep their write-contract node and lose only the callback", () => {
       const defs = buildWorkflowDefinitions(free);
-      for (const key of ["pay", "credit"] as const) {
+      for (const key of ["pay", "x402", "settle"] as const) {
         const def = defs[key]!;
         expect(def.nodes.map((n) => n.id)).toEqual(["redemption-request", "redeem"]);
         expect(def.nodes.find((n) => n.id === "redeem")!.data.config.actionType).toBe("web3/write-contract");
@@ -611,7 +710,7 @@ describe("workflow definitions", () => {
     test("hook-only sweeps are dropped, since a lone schedule is not a workflow", () => {
       const defs = buildWorkflowDefinitions(free);
       expect(defs.recovery).toBeNull();
-      expect(defs.settle).toBeNull();
+      expect(defs.sweep).toBeNull();
     });
 
     test("the hook secret is not required when nothing calls back", () => {
@@ -737,7 +836,7 @@ describe("anchor attestation", () => {
     expect(r.to_block).toBe(200);
   });
 
-  test("an on-chain anchor AttestPay never recorded is surfaced", async () => {
+  test("an on-chain anchor KeeperCard never recorded is surfaced", async () => {
     const { kh, client } = world([{ hash: ONCHAIN_TX, amount: "500000" }]);
     const r = await attestAnchors({ client, store: kh, anchorAddress: ANCHOR });
     expect(r.unrecorded.length).toBe(1);
