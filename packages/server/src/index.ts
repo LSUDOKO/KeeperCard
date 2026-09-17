@@ -1,4 +1,4 @@
-// @attestpay/server: the one always-on process.
+// KeeperCard server: the one always-on process.
 // Hostname routing on a single Hono app:
 //   mcp.*          -> MCP endpoint (/c/<secret>/mcp) + dashboard API + webhooks
 //   facilitator.*  -> erc7710 x402 facilitator (verify/settle/supported) + demo seller
@@ -13,35 +13,40 @@ import { keeperhub } from "@attestpay/engine";
 import { createApp } from "./app";
 import { envInt, realDeps } from "./deps";
 import { deliverWebhooks } from "./events/deliver";
-import {
-  bootAttestcoin,
-  keeperhubDrivesSweeps,
-  runAttestcoinSweep,
-  runFiatSettlement,
-  runRecovery,
-} from "./keeperhub/sweeps";
+import { keeperhubDrivesSweeps, runFiatSettlement, runReceiptSweep, runRecovery } from "./keeperhub/sweeps";
 
 const deps = realDeps();
+
+// Workflow ids are looked up by NAME, so a deployment needs no KEEPERHUB_WORKFLOW_* env
+// vars: provision once and the server finds them. Awaited before the listener starts,
+// so the first payment already routes through its workflow. A KeeperHub that cannot be
+// reached leaves the config as it was and payments fall back to direct execution.
+if (deps.keeperhub?.config && deps.keeperhub.client) {
+  const r = await keeperhub.resolveWorkflowIds(deps.keeperhub.client, deps.keeperhub.config);
+  if (r.error) console.warn(`[keeperhub] could not look up workflows by name (${r.error}); using configured ids only`);
+  const wf = deps.keeperhub.config.workflows;
+  const live = keeperhub.KEEPERHUB_WORKFLOW_KEYS.filter((k) => wf[k]);
+  console.log(
+    `[keeperhub] ${live.length}/${keeperhub.KEEPERHUB_WORKFLOW_KEYS.length} workflows live (${r.resolved.length} resolved by name): ${live.join(" ") || "none — run keeperhub:provision"}`,
+  );
+}
+
 const app = createApp(deps);
 const port = envInt("PORT", 4070);
-const otel = trace.getTracer("attestpay-server");
+const otel = trace.getTracer("keepercard-server");
 
 const khDriven = keeperhubDrivesSweeps(deps);
 
 if (khDriven) {
   const wf = deps.keeperhub!.config!.workflows;
   console.log(
-    `[keeperhub] recurring work is scheduled by KeeperHub · stuck-charge-recovery=${wf.recovery} fiat-settlement-sweep=${wf.settle ?? "-"}`,
+    `[keeperhub] recurring work is scheduled by KeeperHub · stuck-charge-recovery=${wf.recovery} fiat-settlement-sweep=${wf.sweep ?? "-"}`,
   );
   for (const name of keeperhub.DEPRECATED_INTERVAL_VARS) {
     if (process.env[name] !== undefined) {
       console.warn(`[keeperhub] ${name} is DEPRECATED and ignored: this timer is a KeeperHub scheduled workflow now`);
     }
   }
-  // Attestation waits are minutes long, so KeeperHub's recovery schedule advancing
-  // the proof pipeline is enough; boot the chain-key/deployment check eagerly anyway
-  // so a misconfiguration is visible at startup rather than at the first tick.
-  if (deps.attestcoin?.client) void bootAttestcoin(deps);
 } else {
   // ---- legacy lane: in-process timers ----
 
@@ -60,29 +65,25 @@ if (khDriven) {
     setTimeout(() => void runFiatSettlement(deps).catch(() => {}), 5_000); // startup crash recovery
   }
 
-  // Attestcoin proof worker.
-  if (deps.attestcoin?.client) {
-    void bootAttestcoin(deps);
-    const sweepMs = envInt("ATTESTPAY_ATTESTCOIN_SWEEP_INTERVAL_MS", 60_000);
-    if (sweepMs > 0) {
-      setInterval(() => void runAttestcoinSweep(deps), sweepMs);
-      setTimeout(() => void runAttestcoinSweep(deps), 10_000);
-      console.log(`[attestcoin] proof worker every ${sweepMs}ms`);
-    } else {
-      console.log(
-        "[attestcoin] proof worker DISABLED (ATTESTPAY_ATTESTCOIN_SWEEP_INTERVAL_MS=0): payments will queue but never verify",
-      );
-    }
-  }
-
   if (deps.keeperhub?.config) {
-    console.warn(
-      "[keeperhub] KeeperHub executes payments, but no stuck-charge-recovery workflow/hook secret is configured: run `bun run keeperhub:provision` so KeeperHub schedules recovery instead of these timers",
-    );
+    // Not a misconfiguration on the free plan: recovery and the settlement sweep are
+    // schedule-plus-callback workflows, and HTTP Request is a Pro action. KeeperHub still
+    // executes every payment; only the reconcile heartbeat stays in this process.
+    console.log("[keeperhub] reconcile + settlement timers run in-process (the callback workflows need KeeperHub Pro)");
   }
 }
 
-// Webhook delivery sweep: payment-critical signed webhooks stay on AttestPay's own
+// Receipts that were queued but never landed (a restart, an empty gas tank, a busy
+// KeeperHub). The charge-confirmed hook anchors eagerly; this catches the rest.
+if (deps.keeperhub?.receipts) {
+  const receiptMs = envInt("KEEPERHUB_RECEIPT_SWEEP_INTERVAL_MS", 120_000);
+  if (receiptMs > 0) {
+    setInterval(() => void runReceiptSweep(deps).catch(() => {}), receiptMs);
+    setTimeout(() => void runReceiptSweep(deps).catch(() => {}), 15_000);
+  }
+}
+
+// Webhook delivery sweep: payment-critical signed webhooks stay on KeeperCard's own
 // HMAC queue by design (non-critical notifications relay through KeeperHub).
 if (deps.events) {
   const bus = deps.events;
@@ -106,6 +107,6 @@ if (deps.events) {
   }
 }
 
-console.log(`attestpay server listening on :${port} · executor=${deps.relayer.kind}`);
+console.log(`keepercard server listening on :${port} · executor=${deps.relayer.kind}`);
 
 export default { port, fetch: app.fetch, idleTimeout: 120 };

@@ -22,11 +22,20 @@ import {
   spend,
   usdcToAtoms,
 } from "@attestpay/engine";
+import { privateKeyToAccount } from "viem/accounts";
 import type { ApiEnv } from "../api/routes";
 import { spendDeps, spendKey, type AppDeps } from "../deps";
 import type { Handle, OwnedCardResolver } from "../events/routes";
 
 const HOUR = 3600;
+
+function sponsorAddress(pk: string): `0x${string}` | null {
+  try {
+    return privateKeyToAccount((pk.startsWith("0x") ? pk : `0x${pk}`) as `0x${string}`).address;
+  } catch {
+    return null;
+  }
+}
 
 export function explorerTx(chainId: number | null, hash: string | null): string | null {
   if (!hash) return null;
@@ -103,6 +112,18 @@ export function presentRisk(r: keeperhub.RiskAssessment | null | undefined) {
   };
 }
 
+/** A receipt with both of its transactions linked: the payment, and the anchor that records it. */
+export function presentReceipt(r: keeperhub.ReceiptView) {
+  return {
+    ...r,
+    anchor_url: explorerTx(r.anchor_chain_id, r.anchor_tx),
+    payment_url: explorerTx(r.payment_chain_id, r.payment_tx),
+  };
+}
+
+const usdc6 = (atoms: string | null): string | null => (atoms === null ? null : (Number(atoms) / 1e6).toFixed(6));
+const eth18 = (wei: string | null): string | null => (wei === null ? null : (Number(wei) / 1e18).toFixed(8));
+
 export type ScopedUser = (c: Parameters<Handle>[0]) => string;
 
 export function keeperhubRoutes(deps: AppDeps, ownedCard: OwnedCardResolver, handle: Handle, scopedUser: ScopedUser): Hono<ApiEnv> {
@@ -164,7 +185,23 @@ export function keeperhubRoutes(deps: AppDeps, ownedCard: OwnedCardResolver, han
       for (const key of keeperhub.KEEPERHUB_WORKFLOW_KEYS) {
         const id = cfg?.workflows[key] ?? null;
         if (!id) {
-          out.push({ key, name: keeperhub.KEEPERHUB_WORKFLOW_NAMES[key], id: null, provisioned: false, runs: [] });
+          out.push({
+            key,
+            name: keeperhub.KEEPERHUB_WORKFLOW_NAMES[key],
+            trigger: keeperhub.KEEPERHUB_WORKFLOW_TRIGGERS[key],
+            id: null,
+            provisioned: false,
+            // recovery/sweep are schedule + HTTP callback, a Pro action; notify needs an integration
+            unavailable_reason:
+              key === "recovery" || key === "sweep"
+                ? "needs KeeperHub Pro (HTTP Request action); KeeperCard runs this timer in-process instead"
+                : key === "notify"
+                  ? "no notification integration configured"
+                  : key === "anchor" || key === "receipts"
+                    ? "KEEPERHUB_RECEIPT_ANCHOR_ADDRESS is not set"
+                    : "not provisioned yet: run keeperhub:provision",
+            runs: [],
+          });
           continue;
         }
         try {
@@ -172,6 +209,7 @@ export function keeperhubRoutes(deps: AppDeps, ownedCard: OwnedCardResolver, han
           out.push({
             key,
             name: wf.name,
+            trigger: keeperhub.KEEPERHUB_WORKFLOW_TRIGGERS[key],
             id,
             provisioned: true,
             enabled: wf.enabled ?? null,
@@ -181,27 +219,27 @@ export function keeperhubRoutes(deps: AppDeps, ownedCard: OwnedCardResolver, han
             runs: runs.slice(0, 10),
           });
         } catch (e) {
-          out.push({ key, name: keeperhub.KEEPERHUB_WORKFLOW_NAMES[key], id, provisioned: true, error: e instanceof Error ? e.message : String(e), runs: [] });
+          out.push({ key, name: keeperhub.KEEPERHUB_WORKFLOW_NAMES[key], trigger: keeperhub.KEEPERHUB_WORKFLOW_TRIGGERS[key], id, provisioned: true, error: e instanceof Error ? e.message : String(e), runs: [] });
         }
       }
       return { workflows: out };
     }),
   );
 
-  // The audit trail's independent witness: AttestPay's anchor records checked against
+  // The audit trail's independent witness: KeeperCard's anchor records checked against
   // the PaymentAnchored events the chain actually holds. Admin-only, because it reports
   // across every card's anchors rather than one caller's subtree.
   app.get("/keeperhub/attestation", (c) =>
     handle(c, async () => {
       if (c.get("auth").kind !== "admin") throw new RefusalError("card_not_found", "attestation is an operator view");
-      const ac = deps.attestcoin?.client?.config;
-      if (!ac) throw new RefusalError("invalid_terms", "the Attestcoin anchor is not configured on this deployment");
+      const anchorAddress = kh().config?.receiptAnchorAddress;
+      if (!anchorAddress) throw new RefusalError("invalid_terms", "no PaymentAnchor is configured on this deployment (KEEPERHUB_RECEIPT_ANCHOR_ADDRESS)");
       const blockCount = Math.min(Number(c.req.query("blocks") ?? "6500") || 6500, 50_000);
       const report = await keeperhub.attestAnchors({
         client: client(),
         store: kh().store,
-        anchorAddress: ac.anchorAddress,
-        anchorChainId: ac.sourceChainId || keeperhub.ETHEREUM_SEPOLIA_CHAIN_ID,
+        anchorAddress,
+        anchorChainId: CHAIN_ID,
         blockCount,
       });
       return {
@@ -263,6 +301,54 @@ export function keeperhubRoutes(deps: AppDeps, ownedCard: OwnedCardResolver, han
       // refresh the local record from the verified answer
       if (record.action === "execute") await deps.relayer.getStatus(keeperhub.keeperhubRequestId(record.surface, executionId));
       return { record: presentExecution(k.store.byExecutionId(executionId) ?? record), live, logs };
+    }),
+  );
+
+  // Live treasury state, every figure read through KeeperHub: the wallets payments
+  // depend on, and the Chainlink reference prices the depeg guard uses.
+  app.get("/keeperhub/treasury", (c) =>
+    handle(c, async () => {
+      const cfg = kh().config;
+      if (!cfg) throw new RefusalError("invalid_terms", "KeeperHub is not configured on this deployment");
+      const orgWallet = (cfg.walletAddress ?? (await deps.relayer.delegateAddress().catch(() => null))) as `0x${string}` | null;
+      const sponsorPk = process.env.ATTESTPAY_7702_SPONSOR_PK?.trim();
+      const sponsorWallet = sponsorPk ? sponsorAddress(sponsorPk) : null;
+      const t = await keeperhub.readTreasury({
+        client: client(),
+        chainId: CHAIN_ID,
+        usdc: CHAINS[CHAIN_ID].usdc,
+        orgWallet,
+        sponsorWallet,
+        depegFloor: cfg.depegFloor,
+      });
+      const wallet = (w: keeperhub.WalletHealth | null, role: string) =>
+        w ? { role, address: w.address, gas_eth: eth18(w.gas_wei), usdc: usdc6(w.usdc_atoms), gas_low: w.gas_low } : null;
+      return {
+        chain_id: t.chain_id,
+        chain: CHAINS[CHAIN_ID].name,
+        wallets: [wallet(t.org_wallet, "KeeperHub org wallet (executes payments)"), wallet(t.sponsor_wallet, "EIP-7702 sponsor")].filter(Boolean),
+        usdc_usd: t.usdc_usd,
+        eth_usd: t.eth_usd,
+        usdc_depegged: t.usdc_depegged,
+        depeg_floor: t.depeg_floor,
+        guarded_min_usdc: cfg.guardedMinUsdc,
+        note: "Read live through KeeperHub. A null figure means the read failed — unknown, not zero.",
+      };
+    }),
+  );
+
+  // On-chain receipts for a card's confirmed payments.
+  app.get("/cards/:id/receipts", (c) =>
+    handle(c, async () => {
+      const card = ownedCard(c, c.req.param("id"), "read");
+      const k = kh();
+      if (!k.receipts) return { configured: false, anchor: null, items: [] };
+      const items = deps.store
+        .subtreeIds(card.id)
+        .flatMap((id) => deps.store.listCharges(id, 50))
+        .filter((ch) => ch.status === "confirmed" && ch.tx_hash)
+        .map((ch) => ({ ...presentReceipt(k.receipts!.view(ch.id)), amount: atomsToUsdc(ch.amount_atoms), memo: ch.memo, card_id: ch.card_id }));
+      return { configured: true, anchor: k.config?.receiptAnchorAddress ?? null, anchor_chain_id: CHAIN_ID, items };
     }),
   );
 

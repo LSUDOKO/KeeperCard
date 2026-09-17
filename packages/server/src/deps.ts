@@ -6,10 +6,10 @@ import { privateKeyToAccount } from "viem/accounts";
 import { isAddress } from "viem";
 import type { Hex } from "viem";
 import {
+  CHAIN_ID,
   KeyedMutex,
   Relayer,
   Store,
-  attestcoin,
   keeperhub,
   type DelegationSigner,
   type Executor,
@@ -32,8 +32,10 @@ export type KeeperHubDeps = {
   client: keeperhub.KeeperHubClient | null;
   /** plans + execution audit records; always present so the dashboard can render */
   store: keeperhub.KeeperHubStore;
-  /** payment anchoring on Sepolia through KeeperHub (null = direct path) */
+  /** writes PaymentAnchor receipts through KeeperHub (null = no anchor configured) */
   anchorer: keeperhub.KeeperHubAnchorer | null;
+  /** on-chain receipts for confirmed payments (null = no anchor configured) */
+  receipts: keeperhub.ReceiptService | null;
   disabledReason: string | null;
 };
 
@@ -60,14 +62,6 @@ export type AppDeps = {
   stripe?: StripeClient | null;
   /** drives approved fiat charge rows through spend(); null = settlement mode off */
   fiatSettler?: FiatSettler | null;
-  /** Attestcoin cross-chain verification. `client` is null when the integration is
-   * configured-off; the whole field is absent in tests that don't exercise it.
-   * Optional like the other integrations above, so a fake AppDeps stays small —
-   * every consumer must therefore handle it being missing. */
-  attestcoin?: {
-    store: attestcoin.AttestcoinStore;
-    client: attestcoin.AttestcoinClient | null;
-  };
   /** Events, webhooks, audit log and budget alerts. Absent in fakes that don't need
    * them; every consumer treats it as optional. */
   events?: EventBus;
@@ -99,7 +93,7 @@ export function executionLayer(store: Store): { relayer: Executor; keeperhub: Ke
     );
     return {
       relayer: new Relayer(),
-      keeperhub: { mode, config: null, client: null, store: khStore, anchorer: null, disabledReason: "ATTESTPAY_EXECUTOR=1shot" },
+      keeperhub: { mode, config: null, client: null, store: khStore, anchorer: null, receipts: null, disabledReason: "ATTESTPAY_EXECUTOR=1shot" },
     };
   }
   const config = keeperhub.keeperhubConfig();
@@ -110,13 +104,12 @@ export function executionLayer(store: Store): { relayer: Executor; keeperhub: Ke
     );
     return {
       relayer: new keeperhub.UnconfiguredKeeperHubExecutor(reason),
-      keeperhub: { mode, config: null, client: null, store: khStore, anchorer: null, disabledReason: reason },
+      keeperhub: { mode, config: null, client: null, store: khStore, anchorer: null, receipts: null, disabledReason: reason },
     };
   }
   const client = new keeperhub.KeeperHubClient(config);
-  // Accept the key with or without the 0x prefix, the way the Attestcoin key is read
-  // (attestcoin/config.ts). Operators copy these between vars, and a bare-hex key would
-  // otherwise fail deep inside viem with "invalid private key", far from the cause.
+  // Accept the key with or without the 0x prefix. Operators copy keys between vars,
+  // and a bare-hex key would otherwise fail deep inside viem with "invalid private key", far from the cause.
   const rawSponsorPk = process.env.ATTESTPAY_7702_SPONSOR_PK?.trim();
   const sponsorPk = rawSponsorPk ? ((rawSponsorPk.startsWith("0x") ? rawSponsorPk : `0x${rawSponsorPk}`) as Hex) : undefined;
   const executor = new keeperhub.KeeperHubExecutor({
@@ -137,7 +130,7 @@ export function executionLayer(store: Store): { relayer: Executor; keeperhub: Ke
   );
   return {
     relayer: executor,
-    keeperhub: { mode, config, client, store: khStore, anchorer: null, disabledReason: null },
+    keeperhub: { mode, config, client, store: khStore, anchorer: null, receipts: null, disabledReason: null },
   };
 }
 
@@ -149,9 +142,6 @@ export function realDeps(): AppDeps {
   // silently breaks — a trailing newline/space survives copy-paste and makes every
   // token fail the `aud` check below with an opaque 401 "unauthorized".
   const privyAppId = process.env.ATTESTPAY_PRIVY_APP_ID?.trim() || undefined;
-  // Created unconditionally so the proof tables always exist: the dashboard renders
-  // an empty, labelled panel when the integration is off rather than 500-ing.
-  const acStore = new attestcoin.AttestcoinStore(store.db);
   const deps: AppDeps = {
     store,
     relayer,
@@ -162,49 +152,33 @@ export function realDeps(): AppDeps {
     veniceChat: process.env.VENICE_API_KEY ? veniceChat() : null,
     basescanKey: process.env.BASESCAN_API_KEY ?? null,
     stripe: makeStripeClient(),
-    attestcoin: { store: acStore, client: null },
     events: new EventBus(new EventStore(store.db), store),
     teams: new TeamStore(store.db),
     keeperhub: khDeps,
   };
 
-  // Attestcoin is optional. A misconfiguration must disable the cross-chain leg
-  // LOUDLY and leave everything else working — payments are the product, provable
-  // payment history is the addition.
-  const acConfig = attestcoin.attestcoinConfig();
-  if (acConfig) {
-    try {
-      const acClient = new attestcoin.AttestcoinClient(acConfig);
-      deps.attestcoin = { store: acStore, client: acClient };
-      console.log(
-        `[attestcoin] enabled · chainKey=${acConfig.chainKey} anchor=${acConfig.anchorAddress} asc=${acConfig.ascAddress}`,
-      );
-      // Payment anchors go through KeeperHub once its anchor workflow is provisioned
-      // (or KEEPERHUB_ANCHOR_PAYMENTS=1 for direct execution). The ASC must trust the
-      // KeeperHub wallet; the boot deployment check says so loudly if it does not.
-      const kh = khDeps;
-      const anchorViaKh =
-        kh.config && kh.client && process.env.KEEPERHUB_ANCHOR_PAYMENTS !== "0" &&
-        (kh.config.workflows.anchor !== null || process.env.KEEPERHUB_ANCHOR_PAYMENTS === "1");
-      if (anchorViaKh) {
-        kh.anchorer = new keeperhub.KeeperHubAnchorer({
-          client: kh.client!,
-          config: kh.config!,
-          store: kh.store,
-          anchorAddress: acConfig.anchorAddress,
-          anchorChainId: acConfig.sourceChainId || keeperhub.ETHEREUM_SEPOLIA_CHAIN_ID,
-          existingAnchor: (req) => acClient.existingAnchor(req),
-          blockOf: (hash) => acClient.sourceBlockOf(hash),
-        });
-        console.log("[attestcoin] payment anchors execute through KeeperHub (attestcoin-cross-chain-proof, leg 1)");
-      }
-    } catch (e) {
-      console.error(
-        `[attestcoin] DISABLED: client construction failed (${e instanceof Error ? e.message : String(e)})`,
-      );
-    }
-  } else {
-    console.log(`[attestcoin] disabled · ${attestcoin.attestcoinDisabledReason() ?? "not configured"}`);
+  // On-chain receipts: every confirmed payment gets a PaymentAnchor record, written by
+  // KeeperHub on the settlement chain. Optional — without an anchor address payments
+  // work exactly the same and simply carry no receipt.
+  if (khDeps.config && khDeps.client && khDeps.config.receiptAnchorAddress) {
+    khDeps.anchorer = new keeperhub.KeeperHubAnchorer({
+      client: khDeps.client,
+      config: khDeps.config,
+      store: khDeps.store,
+      anchorAddress: khDeps.config.receiptAnchorAddress,
+      anchorChainId: CHAIN_ID,
+    });
+    khDeps.receipts = new keeperhub.ReceiptService({
+      store,
+      executions: khDeps.store,
+      anchorer: khDeps.anchorer,
+      paymentChainId: CHAIN_ID,
+      anchorChainId: CHAIN_ID,
+      log: (line) => console.log(line),
+    });
+    console.log(`[receipts] on-chain receipts ENABLED · PaymentAnchor ${khDeps.config.receiptAnchorAddress} on chain ${CHAIN_ID}`);
+  } else if (khDeps.config) {
+    console.log("[receipts] disabled · KEEPERHUB_RECEIPT_ANCHOR_ADDRESS is not set");
   }
   // the settler closes over the full deps object (store + mutex + spend seams).
   // A malformed settlement address would book every approved charge against a
@@ -233,99 +207,16 @@ export function spendDeps(deps: AppDeps): SpendDeps {
     relayer: deps.relayer,
     plans: deps.keeperhub?.store ?? null,
     planTtlSeconds: deps.keeperhub?.config?.planTtlSeconds,
-    // Every confirmed charge is offered to the Attestcoin pipeline. Enqueue is
-    // cheap (one idempotent INSERT) and the background worker does the slow
-    // cross-chain work, so `pay` still returns as soon as Base confirms.
-    onChargeConfirmed: enqueueForVerification(deps),
+    // Every confirmed charge is announced and queued for its on-chain receipt. Both are
+    // fire-and-forget, so `pay` still returns as soon as the payment confirms.
+    onChargeConfirmed: onChargeConfirmed(deps),
     ...deps.spendOverrides,
   };
 }
 
-/** Registers a newly issued card's terms on Creditcoin, fire-and-forget.
- *
- * Deliberately not awaited by the issuance handlers. Registering terms makes verified
- * payments judgeable against them; it is NOT a precondition for issuing or spending,
- * so an unreachable Creditcoin must not make cards un-issuable. Failures are recorded
- * in the local registration table and logged, and the card works regardless. */
-export function registerTermsInBackground(deps: AppDeps, cardId: string): void {
-  const ac = deps.attestcoin;
-  if (!ac?.client) return;
-  const client = ac.client;
-  void attestcoin
-    .registerCardTermsOnChain(
-      { store: deps.store, attestcoin: ac.store, client },
-      cardId,
-      Math.floor(Date.now() / 1000),
-    )
-    .then((r) => {
-      if (!r.ok) console.error(`[attestcoin] terms registration failed for ${cardId}: ${r.error}`);
-    })
-    .catch(() => {
-      /* recorded in attestcoin_card_terms; never surfaces to the issuing caller */
-    });
-}
-
-/** Marks a card's registered terms revoked on Creditcoin, fire-and-forget, and
- * queues the PROVEN revocation fact when the ledger is configured.
- *
- * The ASC keeps the terms record (history must not vanish) and flips `active` to
- * false. Best-effort for the same reason as registration: a card's revocation on Base
- * is what actually stops it spending, and that must never be blocked on Creditcoin.
- *
- * The proven fact is what gives counterparties a checkable `revokedAt`: the ASC flag
- * says a card was revoked, `AttestPayLedger.cardRevokedAt` says WHEN, from attested
- * bytes, so "was this card live when it paid me?" has an answer nobody has to take
- * AttestPay's word for. */
-export function revokeTermsInBackground(deps: AppDeps, cardId: string): void {
-  const ac = deps.attestcoin;
-  if (!ac?.client) return;
-  void ac.client.revokeCardTerms(cardId).catch(() => {
-    /* best-effort: the on-Base revocation is the one that stops spending */
-  });
-  if (attestcoin.attestcoinFeatures(ac.client.config).disputes) {
-    try {
-      attestcoin.enqueueCardRevocation({ store: deps.store, attestcoin: ac.store }, cardId, Math.floor(Date.now() / 1000));
-    } catch {
-      /* the local revocation already happened; the fact is a record of it */
-    }
-  }
-}
-
-/** Registers a fully signed credit line on Creditcoin, fire-and-forget. The sweep
- * retries anything this misses (process restart, transient RPC failure). */
-export function openLineInBackground(deps: AppDeps, lineId: string): void {
-  const ac = deps.attestcoin;
-  if (!ac?.client || !attestcoin.attestcoinFeatures(ac.client.config).credit) return;
-  const client = ac.client;
-  void attestcoin
-    .openLineOnChain({ attestcoin: ac.store, client }, lineId, Math.floor(Date.now() / 1000))
-    .then((r) => {
-      if (!r.ok) {
-        console.error(`[attestcoin] credit line ${lineId} registration failed: ${r.error}`);
-        return;
-      }
-      const line = ac.store.getLine(lineId);
-      if (line) {
-        deps.events?.emit("credit_line.opened", { userId: line.lender_user_id }, { line_id: lineId, creditcoin_tx_hash: r.txHash ?? null });
-        const borrower = deps.store.getUserByAddress(line.borrower_address);
-        if (borrower && borrower.id !== line.lender_user_id) {
-          deps.events?.emit("credit_line.opened", { userId: borrower.id }, { line_id: lineId, creditcoin_tx_hash: r.txHash ?? null });
-        }
-      }
-    })
-    .catch(() => {
-      /* recorded on the line row; the sweep retries */
-    });
-}
-
-/** The confirmed-charge hook: enqueues a charge for cross-chain verification, and
- * — when the charge is a credit-line draw or repayment — the fact that proves it.
- * Does nothing when Attestcoin is not configured. */
-export function enqueueForVerification(deps: AppDeps): (chargeId: string, cardId: string) => void {
+/** The confirmed-charge hook: announces the payment and queues its on-chain receipt. */
+export function onChargeConfirmed(deps: AppDeps): (chargeId: string, cardId: string) => void {
   return (chargeId, cardId) => {
-    const now = Math.floor(Date.now() / 1000);
-    // Events first: a confirmed payment is worth telling people about whether or not
-    // the cross-chain leg is configured.
     if (deps.events) {
       const ch = deps.store.getCharge(chargeId);
       deps.events.emit("charge.confirmed", { cardId }, {
@@ -340,11 +231,6 @@ export function enqueueForVerification(deps: AppDeps): (chargeId: string, cardId
       });
       deps.events.checkBudget(cardId);
     }
-    const ac = deps.attestcoin;
-    if (!ac?.client) return;
-    ac.store.enqueue(chargeId, cardId, now);
-    if (attestcoin.attestcoinFeatures(ac.client.config).credit) {
-      attestcoin.enqueueLineFactForCharge({ store: deps.store, attestcoin: ac.store, config: ac.client.config }, chargeId, now);
-    }
+    deps.keeperhub?.receipts?.enqueue(chargeId);
   };
 }

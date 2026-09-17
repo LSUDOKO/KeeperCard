@@ -1,7 +1,7 @@
-// notification-relay: non-payment-critical AttestPay events go out through KeeperHub's
+// notification-relay: non-payment-critical KeeperCard events go out through KeeperHub's
 // notification integrations (Discord / Telegram / SendGrid / webhook nodes) instead of
-// AttestPay's own retry queue. Payment-critical events (charge.confirmed, proof.verified,
-// card.revoked, ...) deliberately stay on AttestPay's HMAC-signed webhooks: the core
+// KeeperCard's own retry queue. Payment-critical events (charge.confirmed, proof.verified,
+// card.revoked, ...) deliberately stay on KeeperCard's HMAC-signed webhooks: the core
 // audit trail does not take a new dependency.
 
 import { keeperhub } from "@attestpay/engine";
