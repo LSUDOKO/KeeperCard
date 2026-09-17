@@ -24,6 +24,11 @@ const deps = realDeps();
 if (deps.keeperhub?.config && deps.keeperhub.client) {
   const r = await keeperhub.resolveWorkflowIds(deps.keeperhub.client, deps.keeperhub.config);
   if (r.error) console.warn(`[keeperhub] could not look up workflows by name (${r.error}); using configured ids only`);
+  for (const s of r.stale) {
+    console.warn(
+      `[keeperhub] ${keeperhub.workflowEnvVar(s.key)}=${s.id} is STALE (${s.found ? `that id is now "${s.found}"` : "no such workflow"}, expected "${keeperhub.KEEPERHUB_WORKFLOW_NAMES[s.key]}"): ignoring the pin. Remove it from the environment.`,
+    );
+  }
   const wf = deps.keeperhub.config.workflows;
   const live = keeperhub.KEEPERHUB_WORKFLOW_KEYS.filter((k) => wf[k]);
   console.log(

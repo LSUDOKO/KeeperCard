@@ -14,13 +14,18 @@ import { KEEPERHUB_WORKFLOW_KEYS, KEEPERHUB_WORKFLOW_NAMES, type KeeperHubConfig
 export const REFERENCE_FEED_CHAIN_ID = 8453;
 
 /**
- * Fill in workflow ids the operator did not set, by looking the workflows up by name.
+ * Settle which KeeperHub workflow each key runs, by NAME.
  *
  * The provisioner creates workflows by name and KeeperHub keeps the id stable, so the
  * name is already the durable handle. Requiring one env var per workflow on top of that
  * only adds a way to be wrong: a deployment that forgets them silently falls back to
- * direct execution and reports every workflow as absent. An explicit
- * `KEEPERHUB_WORKFLOW_<KEY>` still wins, for pinning a specific workflow.
+ * direct execution and reports every workflow as absent.
+ *
+ * An explicit `KEEPERHUB_WORKFLOW_<KEY>` is honoured only while it still points at a
+ * workflow of the expected name. A pin that names a different workflow — or one that no
+ * longer exists — is stale, and executing it would run the wrong definition (this
+ * happened: a pin outlived a rename and pointed receipts at a retired contract). A stale
+ * pin is dropped, loudly, in favour of the lookup.
  *
  * Mutates and returns `config`. Never throws: a KeeperHub that cannot be reached leaves
  * the config as it was, and payments fall back exactly as they did before.
@@ -28,25 +33,33 @@ export const REFERENCE_FEED_CHAIN_ID = 8453;
 export async function resolveWorkflowIds(
   client: Pick<KeeperHubClient, "listWorkflows">,
   config: KeeperHubConfig,
-): Promise<{ resolved: KeeperHubWorkflowKey[]; error: string | null }> {
-  const missing = KEEPERHUB_WORKFLOW_KEYS.filter((k) => !config.workflows[k]);
-  if (!missing.length) return { resolved: [], error: null };
+): Promise<{ resolved: KeeperHubWorkflowKey[]; stale: Array<{ key: KeeperHubWorkflowKey; id: string; found: string | null }>; error: string | null }> {
   let workflows;
   try {
     workflows = await client.listWorkflows();
   } catch (e) {
-    return { resolved: [], error: e instanceof Error ? e.message : String(e) };
+    return { resolved: [], stale: [], error: e instanceof Error ? e.message : String(e) };
   }
-  const byName = new Map(workflows.map((w) => [w.name, w.id]));
+  const idByName = new Map(workflows.map((w) => [w.name, w.id]));
+  const nameById = new Map(workflows.map((w) => [w.id, w.name]));
   const resolved: KeeperHubWorkflowKey[] = [];
-  for (const key of missing) {
-    const id = byName.get(KEEPERHUB_WORKFLOW_NAMES[key]);
+  const stale: Array<{ key: KeeperHubWorkflowKey; id: string; found: string | null }> = [];
+  for (const key of KEEPERHUB_WORKFLOW_KEYS) {
+    const expected = KEEPERHUB_WORKFLOW_NAMES[key];
+    const pinned = config.workflows[key];
+    if (pinned) {
+      const actual = nameById.get(pinned) ?? null;
+      if (actual === expected) continue;
+      stale.push({ key, id: pinned, found: actual });
+      config.workflows[key] = null;
+    }
+    const id = idByName.get(expected);
     if (id) {
       config.workflows[key] = id;
       resolved.push(key);
     }
   }
-  return { resolved, error: null };
+  return { resolved, stale, error: null };
 }
 
 export type WalletHealth = {

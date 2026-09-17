@@ -64,10 +64,29 @@ describe("resolveWorkflowIds", () => {
     expect(cfg.workflows.guarded).toBeNull();
   });
 
-  test("an explicitly configured id wins over the name lookup", async () => {
-    const cfg = config({ pay: "wf_pinned" });
-    await resolveWorkflowIds({ listWorkflows: async () => live as never }, cfg);
-    expect(cfg.workflows.pay).toBe("wf_pinned");
+  test("a pin is honoured while it still names the expected workflow", async () => {
+    const cfg = config({ pay: "wf_pay" });
+    const r = await resolveWorkflowIds({ listWorkflows: async () => live as never }, cfg);
+    expect(cfg.workflows.pay).toBe("wf_pay");
+    expect(r.stale).toEqual([]);
+    expect(r.resolved).not.toContain("pay");
+  });
+
+  test("a pin that outlived a rename is dropped for the by-name workflow, and reported", async () => {
+    // regression: KEEPERHUB_WORKFLOW_ANCHOR still named a workflow that had been renamed
+    // and retired, so production receipts would have executed the wrong definition
+    const retired = [...live, { id: "wf_old", name: "retired-sepolia-receipt-anchor" }, { id: "wf_anchor", name: KEEPERHUB_WORKFLOW_NAMES.anchor }];
+    const cfg = config({ anchor: "wf_old" });
+    const r = await resolveWorkflowIds({ listWorkflows: async () => retired as never }, cfg);
+    expect(cfg.workflows.anchor).toBe("wf_anchor");
+    expect(r.stale).toEqual([{ key: "anchor", id: "wf_old", found: "retired-sepolia-receipt-anchor" }]);
+  });
+
+  test("a pin to a workflow that no longer exists is dropped rather than executed", async () => {
+    const cfg = config({ guarded: "wf_deleted" });
+    const r = await resolveWorkflowIds({ listWorkflows: async () => live as never }, cfg);
+    expect(cfg.workflows.guarded).toBeNull();
+    expect(r.stale).toEqual([{ key: "guarded", id: "wf_deleted", found: null }]);
   });
 
   test("an unreachable KeeperHub leaves the config untouched and reports why, without throwing", async () => {
@@ -85,19 +104,17 @@ describe("resolveWorkflowIds", () => {
     expect(cfg.workflows.pay).toBe("wf_pinned");
   });
 
-  test("nothing missing means no call at all", async () => {
-    const all = Object.fromEntries(KEEPERHUB_WORKFLOW_KEYS.map((k) => [k, `wf_${k}`])) as KeeperHubConfig["workflows"];
-    let called = false;
+  test("an unreachable KeeperHub keeps even unverifiable pins: better the configured id than none", async () => {
+    const cfg = config({ anchor: "wf_maybe_stale" });
     await resolveWorkflowIds(
       {
         listWorkflows: async () => {
-          called = true;
-          return [];
+          throw new Error("kh unreachable");
         },
       },
-      config(all),
+      cfg,
     );
-    expect(called).toBe(false);
+    expect(cfg.workflows.anchor).toBe("wf_maybe_stale");
   });
 });
 
