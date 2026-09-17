@@ -1,19 +1,17 @@
 # Screenshots
 
-Drop the KeeperCard + SigNoz screenshots in this folder as `img-01.png` through `img-13.png`. The `README.md` (Screenshots section) and `docs/medium-post.md` reference these by number, so the images render automatically once the files are in place.
+Captured from the live deployment; nothing here is mocked. The README's **Proof** section
+explains what each one shows.
 
-| File | Content |
-|---|---|
-| img-01.png | Trace waterfall - HTTP root span with child spans (mcp_tool_card, fetch, sqlite, stripe_webhook_auth) |
-| img-02.png | Traces list filtered to service.name = keepercard-server, endpoint latency by route |
-| img-03.png | Trace search for name LIKE 'mcp_tool_%' - agent tool calls with duration, card_id, mcp.is_error |
-| img-04.png | Erroring mcp_tool_* span - mcp.refusal_code and mcp.error_message attributes |
-| img-05.png | Metrics explorer showing the five keepercard.* metrics |
-| img-06.png | A metric time-series graph (e.g. keepercard.cards_issued_total) |
-| img-07.png | Logs explorer filtered to card_event:* - lifecycle lines with severity and card_id |
-| img-08.png | A refusal log with trace_id - the log-to-trace correlation jump |
-| img-09.png | Claude Code answering a query through the SigNoz MCP server |
-| img-10.png | The KeeperCard dashboard (Cards Issued, Active Cards, USDC Spent, API Errors, MCP Tool Usage, Refusal Reasons) |
-| img-11.png | SigNoz Service Map - keepercard-server with edges to Stripe, Venice AI, KeeperHub, SQLite |
-| img-12.png | SigNoz Cost Meter - per-signal telemetry volume |
-| img-13.png | SigNoz Alerts list (High Error Rate, Refusal Spike, Webhook SLA) |
+| File | Source | Shows |
+|---|---|---|
+| `keeperhub-analytics.jpg` | app.keeperhub.com | Org run count, success rate, sponsored gas |
+| `keeperhub-guarded-workflow-canvas.jpg` | app.keeperhub.com | `guarded-card-payment` node graph |
+| `keeperhub-guarded-run-steps.jpg` | app.keeperhub.com | A real run: four green steps, gas sponsored |
+| `keeperhub-treasury-scheduled-runs.jpg` | app.keeperhub.com | `treasury-monitor` fired every 10 minutes by KeeperHub |
+| `keeperhub-runs-table.jpg` | app.keeperhub.com | Payment → receipt → event watcher, in KeeperHub's run table |
+| `dashboard-card.jpg` | KeeperCard dashboard | The card an agent spent from, with settled payments |
+| `console-*.jpg` | KeeperCard dashboard `/keeperhub` | Status, treasury, workflows, executions, receipts |
+| `explorer-payment-tx.jpg` | Blockscout | A production payment: success, two USDC transfers |
+| `explorer-receipt-events.jpg` | Blockscout | `PaymentAnchored` events on the receipt contract |
+| `terminal-*.png` | `freeze` | `keeperhub:doctor`, `keeperhub:history`, `verify:onchain`, `bun test` |
