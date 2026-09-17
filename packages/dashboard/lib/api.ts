@@ -323,7 +323,7 @@ export type AnchorWitness = {
 };
 
 /**
- * AttestPay's anchor records checked against the chain's own events. Only the scanned
+ * KeeperCard's anchor records checked against the chain's own events. Only the scanned
  * window is covered, so `unwitnessed` means "no event in this range", never "did not
  * happen" — the window is carried so a reader can tell the difference.
  */

@@ -20,7 +20,7 @@ import type { Address } from "viem";
 
 /** A non-2xx answer. `code` is the typed refusal (over_period_limit, card_not_found,
  * ...) when the server sent one, so callers can branch without parsing messages. */
-export class AttestPayError extends Error {
+export class KeeperCardError extends Error {
   constructor(
     readonly status: number,
     message: string,
@@ -28,7 +28,7 @@ export class AttestPayError extends Error {
     readonly detail: Record<string, unknown> | null = null,
   ) {
     super(message);
-    this.name = "AttestPayError";
+    this.name = "KeeperCardError";
   }
 }
 
@@ -89,7 +89,7 @@ export type Team = {
 // The client
 // ---------------------------------------------------------------------------
 
-export type AttestPayOptions = {
+export type KeeperCardOptions = {
   /** e.g. https://api.example.com (the server root, not /api) */
   baseUrl: string;
   /** A Privy access token or the ops token; a function is called per request (token refresh). */
@@ -105,7 +105,7 @@ export class KeeperCard {
   private readonly f: typeof fetch;
   private readonly timeoutMs: number;
 
-  constructor(private readonly opts: AttestPayOptions) {
+  constructor(private readonly opts: KeeperCardOptions) {
     this.base = opts.baseUrl.replace(/\/+$/, "");
     this.f = opts.fetch ?? fetch;
     this.timeoutMs = opts.timeoutMs ?? 20_000;
@@ -115,7 +115,7 @@ export class KeeperCard {
     return typeof this.opts.token === "function" ? await this.opts.token() : this.opts.token;
   }
 
-  /** The request core: JSON in, JSON out, typed refusals as AttestPayError. */
+  /** The request core: JSON in, JSON out, typed refusals as KeeperCardError. */
   async call<T>(method: string, path: string, body?: unknown, opts: { raw?: boolean; public?: boolean } = {}): Promise<T> {
     const url = new URL(`${this.base}${path}`);
     // Ops-token acting-as: userId rides the query for reads and deletes, the body otherwise.
@@ -134,7 +134,7 @@ export class KeeperCard {
       signal: AbortSignal.timeout(this.timeoutMs),
     });
     if (opts.raw) {
-      if (!res.ok) throw new AttestPayError(res.status, await res.text());
+      if (!res.ok) throw new KeeperCardError(res.status, await res.text());
       return (await res.text()) as unknown as T;
     }
     const text = await res.text();
@@ -142,11 +142,11 @@ export class KeeperCard {
     try {
       json = text ? JSON.parse(text) : null;
     } catch {
-      if (res.ok) throw new AttestPayError(res.status, "malformed response body");
+      if (res.ok) throw new KeeperCardError(res.status, "malformed response body");
     }
     if (!res.ok) {
       const j = (json ?? {}) as { code?: string; message?: string; error?: string; detail?: Record<string, unknown> };
-      throw new AttestPayError(res.status, j.message ?? j.error ?? `http ${res.status}`, j.code ?? null, j.detail ?? null);
+      throw new KeeperCardError(res.status, j.message ?? j.error ?? `http ${res.status}`, j.code ?? null, j.detail ?? null);
     }
     return json as T;
   }

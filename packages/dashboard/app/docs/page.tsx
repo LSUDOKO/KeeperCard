@@ -727,7 +727,7 @@ droid     mcp add keepercard https://<host>/c/<secret>/mcp --type http`} />
             <p className="docp">
               <code>@attestpay/sdk</code> (<code>packages/sdk</code>) is a typed client over the whole API — cards, KeeperHub
               executions and receipts, webhooks, events, audit, alerts, teams — plus the pure verifier every integrator
-              needs: <code>verifyWebhookSignature</code> (WebCrypto). Typed refusals arrive as <code>AttestPayError</code>{" "}
+              needs: <code>verifyWebhookSignature</code> (WebCrypto). Typed refusals arrive as <code>KeeperCardError</code>{" "}
               with the server&apos;s code.
             </p>
             <pre className="doccode">{`import { KeeperCard } from "@attestpay/sdk";

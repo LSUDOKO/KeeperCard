@@ -1,5 +1,5 @@
 // The SDK against the REAL server app: every namespace makes at least one call,
-// errors map to AttestPayError with the typed refusal code, and the webhook
+// errors map to KeeperCardError with the typed refusal code, and the webhook
 // verifier agrees with the server's own signer.
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
@@ -11,7 +11,7 @@ import { EventBus } from "@attestpay/server/src/events/bus";
 import { EventStore } from "@attestpay/server/src/events/store";
 import { signWebhook } from "@attestpay/server/src/events/deliver";
 import { TeamStore } from "@attestpay/server/src/teams/store";
-import { KeeperCard, AttestPayError, verifyWebhookSignature } from "../src/index";
+import { KeeperCard, KeeperCardError, verifyWebhookSignature } from "../src/index";
 
 const ADMIN = "sdk-admin";
 const user = privateKeyToAccount(generatePrivateKey());
@@ -70,17 +70,17 @@ describe("client", () => {
   });
 
   test("errors carry the typed refusal", async () => {
-    const e = await kc.cards.get("nope").catch((x) => x as AttestPayError);
-    expect(e).toBeInstanceOf(AttestPayError);
-    expect((e as AttestPayError).status).toBe(422);
-    expect((e as AttestPayError).code).toBe("card_not_found");
+    const e = await kc.cards.get("nope").catch((x) => x as KeeperCardError);
+    expect(e).toBeInstanceOf(KeeperCardError);
+    expect((e as KeeperCardError).status).toBe(422);
+    expect((e as KeeperCardError).code).toBe("card_not_found");
   });
 
   test("keeperhub status is readable when unwired, and the rest refuses cleanly", async () => {
     const s = await kc.keeperhub.status();
     expect(s.enabled).toBe(false);
-    const e = await kc.keeperhub.workflows().catch((x) => x as AttestPayError);
-    expect(e).toBeInstanceOf(AttestPayError);
+    const e = await kc.keeperhub.workflows().catch((x) => x as KeeperCardError);
+    expect(e).toBeInstanceOf(KeeperCardError);
   });
 
   test("webhooks, events, audit, alerts and teams round-trip", async () => {
