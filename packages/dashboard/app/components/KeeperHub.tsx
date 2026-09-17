@@ -243,9 +243,19 @@ function Workflows({ workflows }: { workflows: KeeperHubWorkflow[] }) {
               {w.provisioned ? (
                 <span className="khtag ok">live</span>
               ) : (
-                <span className="khtag muted">not provisioned</span>
+                <span className="khtag muted">no workflow id</span>
               )}
             </div>
+            {!w.provisioned ? (
+              <p className="khnote">
+                No <span className="mono">KEEPERHUB_WORKFLOW_{w.key.toUpperCase()}</span> is set on this
+                deployment, so KeeperHub has no provisioned workflow to run. Payments still execute —
+                they fall back to direct contract calls, which carry the same reviewed calldata but do
+                not appear in KeeperHub&apos;s own workflow history. Run{" "}
+                <span className="mono">keeperhub:provision</span> and set the id to route them through
+                the reviewed workflow instead.
+              </p>
+            ) : null}
             {w.description ? <p className="khwfdesc">{w.description.replace(/^\[keepercard\]\s*/, "")}</p> : null}
             {w.nodes?.length ? (
               <div className="khflow">
