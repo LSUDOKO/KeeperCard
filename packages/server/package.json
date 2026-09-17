@@ -6,6 +6,8 @@
   "scripts": {
     "dev": "bun run --preload ./src/otel.ts --watch src/index.ts",
     "start": "bun run --preload ./src/otel.ts src/index.ts",
+    "verify:onchain": "bun run scripts/verify-onchain.ts",
+    "keeperhub:history": "bun --env-file=../../.env run scripts/keeperhub-history.ts",
     "keeperhub:doctor": "bun --env-file=../../.env run scripts/keeperhub-doctor.ts",
     "keeperhub:provision": "bun --env-file=../../.env run scripts/keeperhub-provision.ts",
     "typecheck": "tsc --noEmit"
