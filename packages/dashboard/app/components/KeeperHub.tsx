@@ -72,7 +72,7 @@ function tone(s: KeeperHubStatus): "ok" | "wait" | "bad" | "muted" {
 const ACTION_LABEL: Record<string, string> = {
   dry_run: "Dry run",
   execute: "Payment",
-  anchor: "Cross-chain anchor",
+  anchor: "On-chain receipt",
   notify: "Notification",
   reconcile: "Stuck-charge recovery",
   settle_sweep: "Fiat settlement",
