@@ -1,44 +1,36 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-/// @title PaymentAnchor — the AttestPay source-chain anchor
-/// @notice Records that an AttestPay card paid someone, as an event on a chain the
-/// Attestcoin attestor network actually watches. `AttestPayASC` on Creditcoin then
-/// proves these events cross-chain and turns them into verifiable credit history.
+/// @title PaymentAnchor — on-chain receipts for KeeperCard payments
+/// @notice Records that a KeeperCard card paid someone, as a public, append-only event
+/// on the chain the payment settled on. KeeperCard's own charge ledger is a row in a
+/// database; this is the same fact in a form anyone can read without asking KeeperCard.
 ///
-/// WHY THIS CONTRACT EXISTS AND WHERE IT LIVES
+/// WHO WRITES IT
 ///
-/// AttestPay's USDC payments execute on Base, via ERC-7710 delegations through the
-/// 1Shot relayer. The Attestcoin protocol on Creditcoin CC3 testnet attests exactly
-/// two source chains — Ethereum mainnet (chainKey 3) and Ethereum Sepolia (chainKey 1)
-/// — which you can confirm yourself with `get_supported_chains()` on the ChainInfo
-/// precompile. Base is not among them. So a Base transaction cannot be proven into
-/// Creditcoin directly, and this contract is deployed on ETHEREUM SEPOLIA instead: it
-/// anchors the facts of a Base payment onto an attested chain, and that anchoring
-/// transaction is what gets proven.
+/// KeeperHub does. After a payment confirms, KeeperCard asks KeeperHub to run the
+/// `payment-receipt-anchor` workflow, which calls `anchorPayment` from KeeperHub's
+/// wallet. Receipts are written in the background, downstream of the payment, so a slow
+/// or failing receipt can never delay or fail the payment it describes.
 ///
-/// WHAT THE RESULTING PROOF DOES AND DOES NOT ESTABLISH
+/// WHAT A RECEIPT DOES AND DOES NOT ESTABLISH
 ///
 /// Be precise about this, because the distinction is the whole trust model:
 ///
-///   PROVEN cryptographically, no oracle trusted: that this `PaymentAnchored` event,
-///   with exactly these field values, was included in an attested Sepolia block.
-///   `AttestPayASC` decodes the fields from the proven transaction bytes, so nobody
-///   — including whoever submits the proof — can alter them in flight.
+///   ESTABLISHED: that `anchoredBy` claimed, at this block, that this payment happened
+///   with exactly these field values. The record is immutable and cannot be re-written:
+///   a second anchor for the same `(sourceChainId, sourceTxHash)` reverts.
 ///
-///   NOT proven: that the Base payment described by the anchor actually happened.
-///   The AttestPay server writes the anchor, so the Base -> Sepolia hop is the
-///   server's attestation, not Attestcoin's. `sourceTxHash` is recorded so any
-///   verifier can independently check the Base transaction and hold the anchor
-///   to account; `anchoredBy` records who made the claim.
+///   NOT established by this contract alone: that the payment it describes happened.
+///   `sourceTxHash` is recorded so any verifier can open that transaction on the same
+///   chain and check it against the receipt; `anchoredBy` records who made the claim.
 ///
 /// Anchoring is permissionless on purpose — any address may anchor, and the anchorer
 /// is recorded in the event. Consumers decide which anchorers they trust rather than
-/// this contract maintaining a privileged writer set. `AttestPayASC` takes the
-/// stricter line and only credits anchors from an anchorer it was configured with.
+/// this contract maintaining a privileged writer set.
 contract PaymentAnchor {
-    /// @notice A card payment, anchored for cross-chain proving.
-    /// @param cardId AttestPay card id, as `keccak256(bytes(card.id))`.
+    /// @notice A card payment, anchored as a public receipt.
+    /// @param cardId KeeperCard card id, as `keccak256(bytes(card.id))`.
     /// @param payer Account the USDC actually left on the source chain (the card
     /// tree's root delegator — the card's funding account).
     /// @param merchant Recipient of the payment.
@@ -61,7 +53,7 @@ contract PaymentAnchor {
     );
 
     /// @notice Number of anchors written, per card. Convenience for source-chain
-    /// readers; the authoritative cross-chain tally lives in `AttestPayASC`.
+    /// readers; the events themselves are the authoritative record.
     mapping(bytes32 => uint256) public anchorCount;
 
     /// @notice Guards against the same source payment being anchored twice, which
