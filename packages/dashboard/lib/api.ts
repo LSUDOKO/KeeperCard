@@ -276,6 +276,39 @@ export type KeeperHubStatus_ = {
 
 export type KeeperHubNode = { id: string; label: string; type: string };
 
+export type TreasuryWallet = { role: string; address: string; gas_eth: string | null; usdc: string | null; gas_low: boolean };
+export type PriceQuoteView = { price: number; decimals: number; updated_at: string | null; feed_chain_id: number };
+
+/** Live reads through KeeperHub. A null figure is a failed read: unknown, not zero. */
+export type Treasury = {
+  chain_id: number;
+  chain: string;
+  wallets: TreasuryWallet[];
+  usdc_usd: PriceQuoteView | null;
+  eth_usd: PriceQuoteView | null;
+  usdc_depegged: boolean | null;
+  depeg_floor: number | null;
+  guarded_min_usdc: string | null;
+  note: string;
+};
+
+export type ReceiptState = "anchored" | "anchoring" | "failed" | "pending" | "not_anchorable";
+
+/** A payment and the on-chain receipt KeeperHub wrote for it. */
+export type Receipt = {
+  charge_id: string;
+  card_id: string;
+  state: ReceiptState;
+  amount: string;
+  memo: string | null;
+  anchor_tx: string | null;
+  anchor_url: string | null;
+  payment_tx: string | null;
+  payment_url: string | null;
+  error: string | null;
+  attempts: number;
+};
+
 /** One PaymentAnchored event as the chain holds it. */
 export type AnchorWitness = {
   tx_hash: string | null;
@@ -317,8 +350,12 @@ export type KeeperHubRun = {
 export type KeeperHubWorkflow = {
   key: string;
   name: string;
+  /** what starts it: KeeperCard (Manual), KeeperHub's cron, or the chain itself */
+  trigger?: "Manual" | "Schedule" | "Event" | "Block";
   id: string | null;
   provisioned: boolean;
+  /** why it is absent, when it is — a plan tier, a missing integration, or not provisioned */
+  unavailable_reason?: string;
   enabled?: boolean | null;
   description?: string | null;
   nodes?: KeeperHubNode[];
@@ -457,6 +494,8 @@ export const api = {
   keeperhubExecution: (executionId: string) =>
     call<{ record: KeeperHubExecution; live: unknown; logs: KeeperHubLog[] | null }>(`/keeperhub/executions/${executionId}`),
   keeperhubForCard: (cardId: string) => call<{ executions: KeeperHubExecution[] }>(`/cards/${cardId}/keeperhub`),
+  keeperhubTreasury: () => call<Treasury>("/keeperhub/treasury"),
+  keeperhubReceipts: () => call<{ configured: boolean; anchor: string | null; anchor_chain_id?: number; items: Receipt[] }>("/keeperhub/receipts"),
   /** Operator view: local anchor records reconciled against the chain's own events. */
   keeperhubAttestation: (blocks = 6500) => call<AttestationReport>(`/keeperhub/attestation?blocks=${blocks}`),
 };

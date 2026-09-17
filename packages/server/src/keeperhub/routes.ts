@@ -337,6 +337,23 @@ export function keeperhubRoutes(deps: AppDeps, ownedCard: OwnedCardResolver, han
     }),
   );
 
+  // On-chain receipts across every card the caller can see (the console's view).
+  app.get("/keeperhub/receipts", (c) =>
+    handle(c, async () => {
+      const k = kh();
+      if (!k.receipts) return { configured: false, anchor: null, items: [] };
+      const cardIds =
+        c.get("auth").kind === "admin" ? deps.store.listAllCardIds(200) : deps.store.listCards(scopedUser(c)).flatMap((x) => deps.store.subtreeIds(x.id));
+      const items = [...new Set(cardIds)]
+        .flatMap((id) => deps.store.listCharges(id, 25))
+        .filter((ch) => ch.status === "confirmed" && ch.tx_hash)
+        .sort((a, b) => b.created_at - a.created_at)
+        .slice(0, 30)
+        .map((ch) => ({ ...presentReceipt(k.receipts!.view(ch.id)), amount: atomsToUsdc(ch.amount_atoms), memo: ch.memo, card_id: ch.card_id }));
+      return { configured: true, anchor: k.config?.receiptAnchorAddress ?? null, anchor_chain_id: CHAIN_ID, items };
+    }),
+  );
+
   // On-chain receipts for a card's confirmed payments.
   app.get("/cards/:id/receipts", (c) =>
     handle(c, async () => {
