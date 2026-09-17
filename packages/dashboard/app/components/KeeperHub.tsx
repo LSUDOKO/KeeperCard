@@ -3,7 +3,7 @@
 // The execution pane: what KeeperHub actually did with this account's money.
 //
 // KeeperCard decides what may be spent. KeeperHub moves it. This pane is the second
-// half — and like the Attestcoin pane, it is built around not overclaiming:
+// half — and like the rest of the dashboard, it is built around not overclaiming:
 //
 //   1. A dry run is not a payment. `simulated` rows are rendered as a rehearsal that
 //      touched no chain, never mixed into the same count as executions. The digest is
@@ -14,6 +14,8 @@
 //   3. Absent is not broken. A workflow that needs a plan tier this org does not have
 //      reads as unavailable with the reason, not as an error.
 //   4. Every hash is a link. A tx the user cannot open on an explorer is decoration.
+//   5. Unknown is not zero. A balance or price that could not be read renders as
+//      "unknown" — never as 0, never as healthy.
 
 import { useCallback, useEffect, useState } from "react";
 import {
@@ -24,6 +26,9 @@ import {
   type KeeperHubStatus,
   type KeeperHubStatus_,
   type KeeperHubWorkflow,
+  type Receipt,
+  type ReceiptState,
+  type Treasury,
 } from "@/lib/api";
 import { shortHex } from "./ui";
 
@@ -74,6 +79,21 @@ const ACTION_LABEL: Record<string, string> = {
   bootstrap: "Account upgrade (EIP-7702)",
 };
 
+const TRIGGER_LABEL: Record<string, string> = {
+  Manual: "per payment",
+  Schedule: "scheduled",
+  Event: "on-chain event",
+  Block: "every N blocks",
+};
+
+const RECEIPT_LABEL: Record<ReceiptState, string> = {
+  anchored: "Receipt on-chain",
+  anchoring: "Writing receipt",
+  pending: "Receipt queued",
+  failed: "Receipt failed",
+  not_anchorable: "No receipt",
+};
+
 function ago(iso: string): string {
   const s = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 1000));
   if (s < 60) return `${s}s ago`;
@@ -89,6 +109,8 @@ export default function KeeperHub() {
   const [workflows, setWorkflows] = useState<KeeperHubWorkflow[]>([]);
   const [executions, setExecutions] = useState<KeeperHubExecution[]>([]);
   const [attestation, setAttestation] = useState<AttestationReport | null>(null);
+  const [treasury, setTreasury] = useState<Treasury | null>(null);
+  const [receipts, setReceipts] = useState<Receipt[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState<number | null>(null);
@@ -100,15 +122,19 @@ export default function KeeperHub() {
       setStatus(s);
       setError(null);
       if (!s.enabled) return;
-      const [w, e, a] = await Promise.all([
+      const [w, e, a, t, r] = await Promise.all([
         api.keeperhubWorkflows().catch(() => ({ workflows: [] })),
         api.keeperhubExecutions(50).catch(() => ({ executions: [] })),
         // operator-only, and the chain read can be slow: absent is fine, not an error
         api.keeperhubAttestation().catch(() => null),
+        api.keeperhubTreasury().catch(() => null),
+        api.keeperhubReceipts().catch(() => null),
       ]);
       setWorkflows(w.workflows);
       setExecutions(e.executions);
       setAttestation(a);
+      setTreasury(t);
+      setReceipts(r && r.configured ? r.items : null);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -155,6 +181,7 @@ export default function KeeperHub() {
   return (
     <div className="khwrap">
       <Status status={status} stats={stats} />
+      <TreasuryPanel treasury={treasury} />
       <Workflows workflows={workflows} />
       <Timeline
         executed={executed}
@@ -162,6 +189,7 @@ export default function KeeperHub() {
         open={open}
         onOpen={(id) => setOpen((cur) => (cur === id ? null : id))}
       />
+      <Receipts receipts={receipts} />
       <Attestation report={attestation} />
     </div>
   );
@@ -230,32 +258,30 @@ function Workflows({ workflows }: { workflows: KeeperHubWorkflow[] }) {
   if (!workflows.length) return null;
   return (
     <section className="panel khpad">
-      <h2 className="khh">Workflows</h2>
+      <div className="khhead">
+        <h2 className="khh">Workflows</h2>
+        <span className="khstatsnote">
+          {workflows.filter((w) => w.provisioned).length} of {workflows.length} live on KeeperHub
+        </span>
+      </div>
       <p className="khnote">
         Defined as code and provisioned by name, so a run executes a reviewed definition rather than
-        something composed at call time.
+        something composed at call time. KeeperCard starts the manual ones per payment; the rest run on
+        KeeperHub&apos;s own schedule, or are started by the chain itself.
       </p>
       <ul className="khlist">
         {workflows.map((w) => (
           <li key={w.key} className={`khwf${w.provisioned ? "" : " off"}`}>
             <div className="khwfhead">
               <span className="khwfname mono">{w.name}</span>
+              {w.trigger ? <span className="khtag">{TRIGGER_LABEL[w.trigger] ?? w.trigger}</span> : null}
               {w.provisioned ? (
-                <span className="khtag ok">live</span>
+                <span className="khtag ok">{w.enabled === false ? "provisioned" : "live"}</span>
               ) : (
-                <span className="khtag muted">no workflow id</span>
+                <span className="khtag muted">unavailable</span>
               )}
             </div>
-            {!w.provisioned ? (
-              <p className="khnote">
-                No <span className="mono">KEEPERHUB_WORKFLOW_{w.key.toUpperCase()}</span> is set on this
-                deployment, so KeeperHub has no provisioned workflow to run. Payments still execute —
-                they fall back to direct contract calls, which carry the same reviewed calldata but do
-                not appear in KeeperHub&apos;s own workflow history. Run{" "}
-                <span className="mono">keeperhub:provision</span> and set the id to route them through
-                the reviewed workflow instead.
-              </p>
-            ) : null}
+            {!w.provisioned && w.unavailable_reason ? <p className="khnote">{w.unavailable_reason}</p> : null}
             {w.description ? <p className="khwfdesc">{w.description.replace(/^\[keepercard\]\s*/, "")}</p> : null}
             {w.nodes?.length ? (
               <div className="khflow">
@@ -528,6 +554,110 @@ function Attestation({ report }: { report: AttestationReport | null }) {
           </ul>
         </>
       ) : null}
+    </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+
+/**
+ * What payments depend on, read live through KeeperHub. The honesty rule is rule 5: a
+ * figure that could not be read is shown as unknown. A treasury panel that renders a
+ * failed read as "0.00" invents an emergency; one that renders it as fine hides one.
+ */
+function TreasuryPanel({ treasury }: { treasury: Treasury | null }) {
+  if (!treasury) return null;
+  const price = (q: Treasury["usdc_usd"], digits: number) => (q ? `$${q.price.toFixed(digits)}` : "unknown");
+  return (
+    <section className="panel khpad">
+      <div className="khhead">
+        <h2 className="khh">Treasury</h2>
+        {treasury.usdc_depegged === true ? (
+          <span className="khtag bad">USDC below peg · payments refused</span>
+        ) : treasury.usdc_depegged === false ? (
+          <span className="khtag ok">USDC on peg</span>
+        ) : (
+          <span className="khtag muted">peg unknown</span>
+        )}
+      </div>
+      <p className="khnote">
+        Read live through KeeperHub on {treasury.chain}. Cards are written in USDC, so the dry run refuses
+        a payment when Chainlink&apos;s USDC/USD reads below {treasury.depeg_floor ?? "the floor"} — and
+        refuses nothing when the feed cannot be read.
+      </p>
+      <div className="khgrid">
+        <Field label="USDC / USD (Chainlink)" value={price(treasury.usdc_usd, 4)} />
+        <Field label="ETH / USD (Chainlink)" value={price(treasury.eth_usd, 2)} />
+        {treasury.guarded_min_usdc ? <Field label="Risk-guarded from" value={`${treasury.guarded_min_usdc} USDC`} /> : null}
+      </div>
+      <ul className="khlist">
+        {treasury.wallets.map((w) => (
+          <li key={w.address} className="khwf">
+            <div className="khwfhead">
+              <span className="khwfname">{w.role}</span>
+              {w.gas_low ? <span className="khtag bad">gas low</span> : null}
+            </div>
+            <div className="khgrid">
+              <Field label="Address" value={shortHex(w.address, 6, 4)} title={w.address} mono />
+              <Field label="Gas" value={w.gas_eth === null ? "unknown" : `${w.gas_eth} ETH`} />
+              <Field label="USDC" value={w.usdc === null ? "unknown" : `${w.usdc} USDC`} />
+            </div>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+
+/** A payment and the public record of it, side by side, each one a link. */
+function Receipts({ receipts }: { receipts: Receipt[] | null }) {
+  if (!receipts) return null;
+  return (
+    <section className="panel khpad">
+      <div className="khhead">
+        <h2 className="khh">On-chain receipts</h2>
+        <span className="khstatsnote">
+          {receipts.filter((r) => r.state === "anchored").length} of {receipts.length} anchored
+        </span>
+      </div>
+      <p className="khnote">
+        After a payment confirms, KeeperHub writes a PaymentAnchor record on the same chain. The ledger
+        below is a claim; the receipt is a public event anyone can read. It is written in the background,
+        so a queued receipt right after a payment is normal.
+      </p>
+      {!receipts.length ? (
+        <p className="khnote">No confirmed payments yet.</p>
+      ) : (
+        <ul className="khruns">
+          {receipts.map((r) => (
+            <li key={r.charge_id} className="khrun">
+              <div className="khrunhead" style={{ cursor: "default" }}>
+                <span className={`khdot ${r.state === "anchored" ? "ok" : r.state === "failed" ? "bad" : r.state === "not_anchorable" ? "muted" : "wait"}`} />
+                <span className="khrunwhat">
+                  <span className="khrunaction">{r.memo || "Payment"}</span>
+                  <span className="khrunwf mono">{r.amount} USDC</span>
+                </span>
+                <span className="khrunstatus">{RECEIPT_LABEL[r.state]}</span>
+              </div>
+              <div className="khruntx">
+                {r.payment_tx ? (
+                  <a className="mono khlink" href={r.payment_url ?? undefined} target="_blank" rel="noreferrer">
+                    payment {shortHex(r.payment_tx, 8, 6)} ↗
+                  </a>
+                ) : null}
+                {r.anchor_tx ? (
+                  <a className="mono khlink" href={r.anchor_url ?? undefined} target="_blank" rel="noreferrer" style={{ marginLeft: 14 }}>
+                    receipt {shortHex(r.anchor_tx, 8, 6)} ↗
+                  </a>
+                ) : null}
+                {r.state === "failed" && r.error ? <span className="khbad" style={{ marginLeft: 14 }}>{r.error}</span> : null}
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
     </section>
   );
 }

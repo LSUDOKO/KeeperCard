@@ -1885,6 +1885,7 @@ button.avatarbtn:hover .avatar { box-shadow: 0 0 0 3px var(--yellow); }
 }
 .khtag.ok { color: var(--forest); background: var(--yellow); border-color: transparent; }
 .khtag.muted { color: var(--ghost); }
+.khtag.bad { color: var(--danger); background: var(--danger-tint); border-color: transparent; }
 .khid { font-size: 11px; color: var(--ghost); display: inline-block; margin-top: 8px; }
 
 .khflow { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
