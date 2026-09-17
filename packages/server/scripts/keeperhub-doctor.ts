@@ -64,8 +64,8 @@ if (wallet) {
   }
 }
 
-// recovery and settle are nothing but a schedule calling back into AttestPay, so on a
-// plan without the `HTTP Request` action they cannot exist and AttestPay keeps its own
+// recovery and settle are nothing but a schedule calling back into KeeperCard, so on a
+// plan without the `HTTP Request` action they cannot exist and KeeperCard keeps its own
 // timers. Absent is then correct, not a fault.
 const features = await client.features().catch(() => null);
 const hooksEnabled = features?.usableFeatureIds.has(keeperhub.HTTP_REQUEST_FEATURE_ID) ?? true;
@@ -73,7 +73,7 @@ if (features) {
   (hooksEnabled ? ok : warn)(
     hooksEnabled
       ? `plan ${features.plan} · HTTP Request available, workflows call back`
-      : `plan ${features.plan} · HTTP Request is Pro-gated, AttestPay polls instead`,
+      : `plan ${features.plan} · HTTP Request is Pro-gated, KeeperCard polls instead`,
   );
 }
 
@@ -82,7 +82,7 @@ for (const key of keeperhub.KEEPERHUB_WORKFLOW_KEYS) {
   const name = keeperhub.KEEPERHUB_WORKFLOW_NAMES[key];
   const hookOnly = key === "recovery" || key === "settle";
   if (!id) {
-    if (hookOnly && !hooksEnabled) ok(`${name}: not on KeeperHub (needs Pro's HTTP Request) · AttestPay runs its own timer`);
+    if (hookOnly && !hooksEnabled) ok(`${name}: not on KeeperHub (needs Pro's HTTP Request) · KeeperCard runs its own timer`);
     else (key === "pay" || key === "recovery" ? bad : warn)(`${name}: no workflow id configured (run keeperhub:provision)`);
     continue;
   }

@@ -1,4 +1,4 @@
-// Provision (or update) AttestPay's six KeeperHub workflows.
+// Provision (or update) KeeperCard's KeeperHub workflows.
 //
 //   bun run keeperhub:provision              create/update by name, print env lines
 //   bun run keeperhub:provision --dry-run    print the workflow JSON, touch nothing
@@ -8,8 +8,8 @@
 //
 // Callbacks are probed, not assumed: KeeperHub gates the `HTTP Request` action behind
 // the Pro plan and rejects a whole workflow containing one with 402 upgrade_required.
-// On a free org the pay/credit/anchor workflows are built without their reporting node
-// and AttestPay polls for the execution record instead; recovery and settle are skipped
+// On a free org the redemption and anchor workflows are built without their reporting
+// node and KeeperCard polls for the execution record instead; recovery and sweep are skipped
 // entirely, because a schedule plus a callback is all they ever were.
 //
 // Idempotent: a workflow whose name already exists in the organization is PATCHed in
@@ -18,12 +18,13 @@
 //
 // Required env: KEEPERHUB_API_KEY, ATTESTPAY_PUBLIC_MCP_BASE (this API's public origin).
 // Optional: KEEPERHUB_HOOK_SECRET (generated if absent), ATTESTPAY_CHAIN_ID,
-// ATTESTPAY_PAYMENT_ANCHOR_ADDRESS, KEEPERHUB_RECOVERY_CRON, KEEPERHUB_SETTLE_CRON,
+// KEEPERHUB_RECEIPT_ANCHOR_ADDRESS, ATTESTPAY_7702_SPONSOR_PK, KEEPERHUB_RECOVERY_CRON, KEEPERHUB_SETTLE_CRON,
 // KEEPERHUB_DISCORD_INTEGRATION_ID, KEEPERHUB_TELEGRAM_INTEGRATION_ID,
 // KEEPERHUB_TELEGRAM_CHAT_ID, KEEPERHUB_SENDGRID_INTEGRATION_ID, KEEPERHUB_NOTIFY_EMAIL,
 // KEEPERHUB_NOTIFY_WEBHOOK_URL.
 
 import { isAddress, type Address } from "viem";
+import { privateKeyToAccount } from "viem/accounts";
 import { CHAIN_ID, keeperhub } from "@attestpay/engine";
 
 const argv = new Set(process.argv.slice(2));
@@ -59,15 +60,30 @@ if (hooksFlag === null && !dryRun) {
   planLabel = features.plan;
 }
 
-const anchor = env("ATTESTPAY_PAYMENT_ANCHOR_ADDRESS");
+// The org wallet is needed up front: the treasury and fee workflows watch it.
+const orgWallet = dryRun ? (config.walletAddress ?? null) : (config.walletAddress ?? (await client.walletAddress()));
+const sponsorPk = env("ATTESTPAY_7702_SPONSOR_PK");
+const sponsorWallet = sponsorPk
+  ? privateKeyToAccount((sponsorPk.startsWith("0x") ? sponsorPk : `0x${sponsorPk}`) as `0x${string}`).address
+  : null;
+
+const anchor = env("KEEPERHUB_RECEIPT_ANCHOR_ADDRESS");
 const defs = keeperhub.buildWorkflowDefinitions({
   chainId: CHAIN_ID,
   publicBaseUrl,
   hookSecret,
   hooksEnabled,
   paymentAnchorAddress: anchor && isAddress(anchor) ? (anchor as Address) : null,
+  orgWallet,
+  sponsorWallet,
+  depegFloor: config.depegFloor ?? undefined,
   gasLimitMultiplier: env("KEEPERHUB_GAS_LIMIT_MULTIPLIER") ?? "1.5",
-  schedules: { recovery: env("KEEPERHUB_RECOVERY_CRON"), settle: env("KEEPERHUB_SETTLE_CRON") },
+  schedules: {
+    recovery: env("KEEPERHUB_RECOVERY_CRON"),
+    sweep: env("KEEPERHUB_SETTLE_CRON"),
+    treasury: env("KEEPERHUB_TREASURY_CRON"),
+    market: env("KEEPERHUB_MARKET_CRON"),
+  },
   notify: {
     discordIntegrationId: env("KEEPERHUB_DISCORD_INTEGRATION_ID"),
     telegramIntegrationId: env("KEEPERHUB_TELEGRAM_INTEGRATION_ID"),
@@ -89,19 +105,19 @@ console.log(`KeeperHub provisioning · ${config.apiBase} · chain ${CHAIN_ID} ·
 console.log(
   hooksEnabled
     ? `✓ HTTP Request available · workflows call back to ${publicBaseUrl}`
-    : "! HTTP Request is Pro-gated · building callback-free workflows; AttestPay polls KeeperHub instead",
+    : "! HTTP Request is Pro-gated · building callback-free workflows; KeeperCard polls KeeperHub instead",
 );
 
 // 1. the chains we execute on must be enabled in KeeperHub
 const chains = await client.listChains();
-for (const needed of [CHAIN_ID, ...(defs.anchor ? [keeperhub.ETHEREUM_SEPOLIA_CHAIN_ID] : [])]) {
+for (const needed of [CHAIN_ID]) {
   const c = chains.find((x) => x.chainId === needed);
   if (!c?.isEnabled) die(`chain ${needed} is not enabled in KeeperHub`);
   console.log(`✓ chain ${needed} ${c!.name}${c!.usePrivateMempoolRpc ? " (private mempool available)" : ""}`);
 }
 
 // 2. the org wallet that will be msg.sender for every write
-const wallet = config.walletAddress ?? (await client.walletAddress()) ?? die("the KeeperHub organization has no web3 wallet yet");
+const wallet = orgWallet ?? die("the KeeperHub organization has no web3 wallet yet");
 console.log(`✓ org wallet ${wallet}`);
 
 // 3. create or update each workflow by name
@@ -111,17 +127,21 @@ for (const key of keeperhub.KEEPERHUB_WORKFLOW_KEYS) {
   const def = defs[key];
   if (!def) {
     const why =
-      key === "anchor"
-        ? "ATTESTPAY_PAYMENT_ANCHOR_ADDRESS not set"
+      key === "anchor" || key === "receipts"
+        ? "KEEPERHUB_RECEIPT_ANCHOR_ADDRESS not set"
         : key === "notify"
-          ? "no notification channel configured (KEEPERHUB_*_INTEGRATION_ID / KEEPERHUB_NOTIFY_WEBHOOK_URL)"
-          : (key === "recovery" || key === "settle") && !hooksEnabled
-            ? "schedule + callback is the whole workflow, and HTTP Request needs Pro; AttestPay keeps its own timer"
+          ? "no notification channel configured (KEEPERHUB_*_INTEGRATION_ID)"
+          : (key === "recovery" || key === "sweep") && !hooksEnabled
+            ? "schedule + callback is the whole workflow, and HTTP Request needs Pro; KeeperCard keeps its own timer"
             : "not applicable";
     console.log(`- ${keeperhub.KEEPERHUB_WORKFLOW_NAMES[key]}: skipped (${why})`);
     continue;
   }
-  const enabled = keeperhub.SCHEDULED_WORKFLOWS.has(key);
+  // Everything is enabled. A manual workflow executes through the API either way, but a
+  // disabled one reads as switched off in KeeperHub's own UI; schedule, event and
+  // transfer triggers genuinely never fire unless enabled.
+  const enabled = true;
+  const autonomous = keeperhub.AUTONOMOUS_WORKFLOWS.has(key);
   const found = existing.find((w) => w.name === def.name);
   const saved = found
     ? await client.updateWorkflow(found.id, { description: def.description, nodes: def.nodes, edges: def.edges, enabled })
@@ -137,28 +157,42 @@ for (const key of keeperhub.KEEPERHUB_WORKFLOW_KEYS) {
   } catch {
     validation = " · validation unavailable";
   }
-  console.log(`✓ ${def.name}: ${found ? "updated" : "created"} ${id}${enabled ? " (enabled, scheduled)" : ""}${validation}`);
+  console.log(`✓ ${def.name}: ${found ? "updated" : "created"} ${id} · ${keeperhub.KEEPERHUB_WORKFLOW_TRIGGERS[key]}${autonomous ? " (runs on its own)" : ""}${validation}`);
 }
 
-const envKeys: Record<keeperhub.KeeperHubWorkflowKey, string> = {
-  pay: "KEEPERHUB_WORKFLOW_PAY",
-  recovery: "KEEPERHUB_WORKFLOW_RECOVERY",
-  settle: "KEEPERHUB_WORKFLOW_SETTLE",
-  anchor: "KEEPERHUB_WORKFLOW_ANCHOR",
-  credit: "KEEPERHUB_WORKFLOW_CREDIT",
-  notify: "KEEPERHUB_WORKFLOW_NOTIFY",
+// 4. retire workflows an earlier version of this script created under names that no
+// longer exist. Only ones carrying our marker are touched — never a workflow a human made.
+const RETIRED: Record<string, string> = {
+  "attestcoin-cross-chain-proof": "retired-sepolia-receipt-anchor",
+  "credit-line-draw-repay": "retired-credit-redemption",
 };
-
-console.log("\nSet these on the API service (Render → Environment):\n");
-console.log(`KEEPERHUB_WALLET_ADDRESS=${wallet}`);
-for (const key of keeperhub.KEEPERHUB_WORKFLOW_KEYS) if (ids[key]) console.log(`${envKeys[key]}=${ids[key]}`);
-if (generatedSecret) console.log(`KEEPERHUB_HOOK_SECRET=${hookSecret}   # generated now: set it, the workflows already carry it`);
-if (defs.anchor) {
-  console.log(
-    `\nCross-chain proofs: payment anchors are now sent by ${wallet}. AttestPayASC.trustedAnchorer is immutable, so redeploy the ASC on Creditcoin CC3 with _trustedAnchorer=${wallet} (contracts/script, unchanged Solidity) and update ATTESTPAY_ASC_ADDRESS. Fund ${wallet} with Sepolia ETH.`,
-  );
+for (const w of existing) {
+  const retiredName = RETIRED[w.name];
+  if (!retiredName || !(w.description ?? "").startsWith("[keepercard]")) continue;
+  try {
+    await client.deleteWorkflow(w.id);
+    console.log(`- ${w.name}: retired (${w.id})`);
+  } catch {
+    // KeeperHub keeps a workflow that has execution history. Its runs are part of the
+    // audit trail and should survive, so it is renamed and switched off instead.
+    try {
+      await client.updateWorkflow(w.id, {
+        name: retiredName,
+        description: "[keepercard] Retired. Superseded by payment-receipt-anchor; kept because KeeperHub preserves workflows that have execution history.",
+        enabled: false,
+      });
+      console.log(`- ${w.name}: has run history, so renamed to ${retiredName} and disabled (${w.id})`);
+    } catch (e) {
+      console.log(`! ${w.name}: could not retire (${e instanceof Error ? e.message : String(e)})`);
+    }
+  }
 }
-console.log(`\nFund ${wallet} with ETH on chain ${CHAIN_ID} for gas (or enable KeeperHub gas sponsorship).`);
+
+console.log("\nNo workflow env vars are needed: the server resolves these workflows by name at boot.");
+console.log("Optional, to pin a specific workflow instead:\n");
+for (const key of keeperhub.KEEPERHUB_WORKFLOW_KEYS) if (ids[key]) console.log(`  ${keeperhub.workflowEnvVar(key)}=${ids[key]}`);
+if (generatedSecret && hooksEnabled) console.log(`\nKEEPERHUB_HOOK_SECRET=${hookSecret}   # generated now: set it, the workflows already carry it`);
+console.log(`\nGas: ${wallet} pays when KeeperHub's gas sponsorship falls back. Keep a little ETH on chain ${CHAIN_ID}; treasury-monitor trips a Condition when it runs low.`);
 
 if (outFile) {
   await Bun.write(
