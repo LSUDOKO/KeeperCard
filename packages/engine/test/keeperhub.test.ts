@@ -278,9 +278,28 @@ describe("redemption calldata", () => {
     expect(JSON.parse(one.functionArgs)).toEqual(one.args);
 
     const batch = encodeRedemption(sampleTransactions(2));
-    expect(decodeFunctionData({ abi: REDEEM_DELEGATIONS_ABI, data: batch.data }).args[1]).toEqual([EXECUTION_MODE_BATCH]);
     expect(batch.digest).not.toBe(one.digest);
     expect(batch.executionCount).toBe(2);
+  });
+
+  test("a multi-execution item becomes one SINGLE-mode entry per execution", () => {
+    // Every caveat enforcer on a card chain is onlySingleCallTypeMode, so a batch-mode
+    // entry reverts with CaveatEnforcer:invalid-call-type before anything transfers.
+    // A real pay has two executions (merchant transfer + fee leg), so encoding it as one
+    // batch entry made every card payment fail on-chain. Regression test for that.
+    const two = encodeRedemption(sampleTransactions(2));
+    const decoded = decodeFunctionData({ abi: REDEEM_DELEGATIONS_ABI, data: two.data });
+    const [contexts, modes, calldatas] = decoded.args as [readonly Hex[], readonly Hex[], readonly Hex[]];
+
+    expect(modes).toEqual([EXECUTION_MODE_SINGLE, EXECUTION_MODE_SINGLE]);
+    expect(modes).not.toContain(EXECUTION_MODE_BATCH);
+    // the three arrays are parallel: redeemDelegations reads them index by index
+    expect(contexts.length).toBe(2);
+    expect(calldatas.length).toBe(2);
+    // both executions redeem under the SAME delegation chain, in one transaction
+    expect(contexts[0]).toBe(contexts[1]!);
+    // and each carries packed single-call data, not an abi-encoded array
+    expect(calldatas[0]).not.toBe(calldatas[1]!);
   });
 
   test("plan context and request id round-trip", () => {
@@ -405,8 +424,13 @@ describe("spend through KeeperHub", () => {
     expect(receipt.fee).toBe("0.01");
 
     const run = api.calls.find((c) => c.path === "/workflows/wf_pay/execute")!;
-    const [contexts] = JSON.parse(run.body.input.functionArgs) as [Hex[]];
-    expect(contexts.length).toBe(1);
+    const [contexts, modes] = JSON.parse(run.body.input.functionArgs) as [Hex[], Hex[]];
+    // a pay is two executions — the merchant transfer and the gas-fee leg — and each
+    // gets its own single-call-type entry, because every caveat enforcer on the chain
+    // is onlySingleCallTypeMode. Both redeem under the same delegation chain, in one tx.
+    expect(contexts.length).toBe(2);
+    expect(contexts[0]).toBe(contexts[1]!);
+    expect(modes).toEqual([EXECUTION_MODE_SINGLE, EXECUTION_MODE_SINGLE]);
 
     const charge = w.store.listCharges(w.cardId)[0]!;
     expect(charge.request_id!.startsWith("kh:wf:")).toBe(true);
