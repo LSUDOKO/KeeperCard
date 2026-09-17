@@ -44,6 +44,14 @@ export const BASE_RPC = process.env.NEXT_PUBLIC_BASE_RPC ?? ACTIVE.rpc;
  * network the cards cannot spend on. */
 export const CHAIN_NAME = ACTIVE.name;
 
+/** Block explorer for the ACTIVE chain. Hardcoding basescan.org points every receipt
+ * link on a testnet deployment at a mainnet explorer, where the transaction does not
+ * exist — a user checking their own payment is told it never happened. */
+export const EXPLORER = CHAIN_ID === 84532 ? "https://sepolia.basescan.org" : "https://basescan.org";
+
+/** Explorer link for a transaction on the active chain. */
+export const txUrl = (hash: string): string => `${EXPLORER}/tx/${hash}`;
+
 // DelegationManager (same on Base + Base Sepolia), verified Jun 5 2026.
 export const DELEGATION_MANAGER = "0xdb9B1e94B5b69Df7e401DDbedE43491141047dB3" as Address;
 

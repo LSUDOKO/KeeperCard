@@ -5,6 +5,7 @@
 
 import type { Charge } from "@/lib/api";
 import { fmtUsd, shortHex } from "./ui";
+import { txUrl } from "@/lib/chain";
 
 const OK_STATUSES = new Set(["settled", "succeeded", "ok", "confirmed", "paid"]);
 
@@ -104,7 +105,7 @@ export function ChargeList({ rows, empty }: { rows: FeedRow[]; empty: string }) 
             </span>
             <span className="a-rcpt">
               {ch.tx ? (
-                <a href={`https://basescan.org/tx/${ch.tx}`} target="_blank" rel="noreferrer">
+                <a href={txUrl(ch.tx)} target="_blank" rel="noreferrer">
                   {shortHex(ch.tx, 6, 4)}
                 </a>
               ) : (

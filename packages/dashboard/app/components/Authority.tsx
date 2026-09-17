@@ -7,7 +7,7 @@
 
 import { useState } from "react";
 import { api, type CardState } from "@/lib/api";
-import { USDC_BASE } from "@/lib/chain";
+import { USDC_BASE, txUrl } from "@/lib/chain";
 import type { useRemit } from "../useRemit";
 import { IconCheck, IconCopy, IconRevoke, isDead, shortHex } from "./ui";
 import { DangerModal, type DangerPhase } from "./Confirm";
@@ -223,7 +223,7 @@ export function RevokeButton({
           <>
             Revoked. The authority is dead.{" "}
             {tx && (
-              <a href={`https://basescan.org/tx/${tx}`} target="_blank" rel="noreferrer" style={{ color: "var(--accent)" }}>
+              <a href={txUrl(tx)} target="_blank" rel="noreferrer" style={{ color: "var(--accent)" }}>
                 {shortHex(tx, 10, 0)}
               </a>
             )}

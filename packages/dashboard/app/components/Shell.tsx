@@ -20,7 +20,7 @@ import { AnimatePresence, motion } from "motion/react";
 import { erc20Abi, formatUnits, type Address } from "viem";
 import { useExportWallet } from "@privy-io/react-auth";
 import { api } from "@/lib/api";
-import { CHAIN_NAME, publicClient, USDC_BASE, WETH_BASE } from "@/lib/chain";
+import { CHAIN_NAME, publicClient, USDC_BASE, WETH_BASE, txUrl } from "@/lib/chain";
 import type { useRemit } from "../useRemit";
 import { copyText, IconCheck, IconCopy, shortHex } from "./ui";
 import { ThemeToggle } from "./Theme";
@@ -390,7 +390,7 @@ function NukeModal({
         <>
           Nuked. The whole tree is revoked on-chain.{" "}
           {tx && (
-            <a href={`https://basescan.org/tx/${tx}`} target="_blank" rel="noreferrer" style={{ color: "var(--accent)" }}>
+            <a href={txUrl(tx)} target="_blank" rel="noreferrer" style={{ color: "var(--accent)" }}>
               {shortHex(tx, 10, 0)}
             </a>
           )}
