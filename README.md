@@ -207,23 +207,23 @@ Everything below is real and reproducible. Nothing is mocked.
 KeeperHub's Analytics page for this org — runs, success rate, and gas, almost all of it
 sponsored:
 
-![KeeperHub analytics](docs/screenshots/keeperhub-analytics.jpg)
+![KeeperHub analytics](https://keepercard-dashboard.adoranto737.workers.dev/readme-assets/keeperhub-analytics.jpg)
 
 `guarded-card-payment` as KeeperHub renders it, and a real run of it — all four steps
 green, the write **gas-sponsored**:
 
-![guarded-card-payment canvas](docs/screenshots/keeperhub-guarded-workflow-canvas.jpg)
-![guarded-card-payment run](docs/screenshots/keeperhub-guarded-run-steps.jpg)
+![guarded-card-payment canvas](https://keepercard-dashboard.adoranto737.workers.dev/readme-assets/keeperhub-guarded-workflow-canvas.jpg)
+![guarded-card-payment run](https://keepercard-dashboard.adoranto737.workers.dev/readme-assets/keeperhub-guarded-run-steps.jpg)
 
 `treasury-monitor` fired by KeeperHub's scheduler every ten minutes, with no involvement
 from KeeperCard:
 
-![treasury-monitor scheduled runs](docs/screenshots/keeperhub-treasury-scheduled-runs.jpg)
+![treasury-monitor scheduled runs](https://keepercard-dashboard.adoranto737.workers.dev/readme-assets/keeperhub-treasury-scheduled-runs.jpg)
 
 KeeperHub's run table during a production payment. Read it bottom-up: risk read → card
 payment → receipt anchor → the event watcher the chain started:
 
-![KeeperHub runs table](docs/screenshots/keeperhub-runs-table.jpg)
+![KeeperHub runs table](https://keepercard-dashboard.adoranto737.workers.dev/readme-assets/keeperhub-runs-table.jpg)
 
 <img width="1906" height="937" alt="swappy-20260917-220134" src="https://github.com/user-attachments/assets/86e3fc47-69fd-4ce0-8f6b-a7379bd6fe1f" />
 <img width="1906" height="937" alt="swappy-20260917-220326" src="https://github.com/user-attachments/assets/587b2363-9686-45ec-9042-280e531031ee" />
@@ -237,11 +237,11 @@ The card an agent spent from, and the [execution console](https://keepercard-das
 — status, treasury read live through KeeperHub, the workflows, the execution timeline,
 and each payment linked to its on-chain receipt:
 
-![Card with settled payments](docs/screenshots/dashboard-card.jpg)
-![Console: status and treasury](docs/screenshots/console-status-treasury.jpg)
-![Console: workflows](docs/screenshots/console-workflows.jpg)
-![Console: executions and dry runs](docs/screenshots/console-executions.jpg)
-![Console: on-chain receipts](docs/screenshots/console-receipts.jpg)
+![Card with settled payments](https://keepercard-dashboard.adoranto737.workers.dev/readme-assets/dashboard-card.jpg)
+![Console: status and treasury](https://keepercard-dashboard.adoranto737.workers.dev/readme-assets/console-status-treasury.jpg)
+![Console: workflows](https://keepercard-dashboard.adoranto737.workers.dev/readme-assets/console-workflows.jpg)
+![Console: executions and dry runs](https://keepercard-dashboard.adoranto737.workers.dev/readme-assets/console-executions.jpg)
+![Console: on-chain receipts](https://keepercard-dashboard.adoranto737.workers.dev/readme-assets/console-receipts.jpg)
 
 ### On an independent explorer
 
@@ -249,8 +249,8 @@ A production payment on Blockscout: `Success`, called through Turnkey's gas stat
 sponsored route), two USDC transfers in one transaction. And the `PaymentAnchored` events
 held by the receipt contract, with the payer and merchant in the indexed topics:
 
-![Payment transaction](docs/screenshots/explorer-payment-tx.jpg)
-![PaymentAnchored events](docs/screenshots/explorer-receipt-events.jpg)
+![Payment transaction](https://keepercard-dashboard.adoranto737.workers.dev/readme-assets/explorer-payment-tx.jpg)
+![PaymentAnchored events](https://keepercard-dashboard.adoranto737.workers.dev/readme-assets/explorer-receipt-events.jpg)
 
 ### From a terminal — verify it yourself
 
@@ -262,10 +262,10 @@ bun run --cwd packages/server keeperhub:history   # what did KeeperHub actually 
 bun run --cwd packages/server verify:onchain      # did the money really move?       (public RPC only — needs no API key)
 ```
 
-![keeperhub:doctor](docs/screenshots/terminal-keeperhub-doctor.png)
-![keeperhub:history](docs/screenshots/terminal-keeperhub-history.png)
-![verify:onchain](docs/screenshots/terminal-onchain-verify.png)
-![bun test](docs/screenshots/terminal-tests.png)
+![keeperhub:doctor](https://keepercard-dashboard.adoranto737.workers.dev/readme-assets/terminal-keeperhub-doctor.png)
+![keeperhub:history](https://keepercard-dashboard.adoranto737.workers.dev/readme-assets/terminal-keeperhub-history.png)
+![verify:onchain](https://keepercard-dashboard.adoranto737.workers.dev/readme-assets/terminal-onchain-verify.png)
+![bun test](https://keepercard-dashboard.adoranto737.workers.dev/readme-assets/terminal-tests.png)
 
 `verify:onchain` talks to neither KeeperHub nor KeeperCard. It fetches each receipt from
 `https://sepolia.base.org` and checks the status, the **log emitter** (USDC for a payment,
