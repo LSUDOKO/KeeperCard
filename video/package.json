@@ -1,0 +1,23 @@
+{
+  "name": "keepercard-demo-video",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "record": "node record/record.mjs",
+    "voice": ".venv/bin/python audio/voice.py",
+    "preview": "remotion studio src/index.ts",
+    "render": "remotion render src/index.ts Demo out/keepercard-demo.mp4 --concurrency 2 --browser-executable $HOME/.cache/ms-playwright/chromium-1243/chrome-linux64/chrome"
+  },
+  "dependencies": {
+    "@remotion/cli": "4.0.310",
+    "@remotion/media-utils": "4.0.310",
+    "react": "19.1.0",
+    "react-dom": "19.1.0",
+    "remotion": "4.0.310"
+  },
+  "devDependencies": {
+    "@types/react": "19.1.0",
+    "playwright": "1.54.0",
+    "typescript": "5.8.3"
+  }
+}
