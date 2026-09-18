@@ -46,7 +46,8 @@ python3 -m venv .venv && .venv/bin/pip install edge-tts numpy
 # footage/ is not committed (it contains a live session). Re-record with record/rec.sh, or
 # drop the clips listed in src/scenes/*.tsx into footage/ (public/footage links there).
 
-bun run render                        # → out/keepercard-demo.mp4
+bun run render                        # → out/keepercard-demo.mp4 (≈12 min at concurrency 2)
+ffmpeg -i out/keepercard-demo.mp4 -c:v copy -af volume=3.3dB -c:a aac -b:a 192k -movflags +faststart out/final.mp4   # −17 LUFS, peaks −1.6 dBFS
 # or: npx remotion render src/index.ts Demo out/keepercard-demo.mp4 --concurrency 2
 ```
 

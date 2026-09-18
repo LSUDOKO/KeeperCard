@@ -2,5 +2,6 @@ node_modules
 .venv
 tmp
 footage/
+footage30/
 public/footage
 out

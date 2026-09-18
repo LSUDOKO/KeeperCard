@@ -6,7 +6,7 @@
     "record": "node record/record.mjs",
     "voice": ".venv/bin/python audio/voice.py",
     "preview": "remotion studio src/index.ts",
-    "render": "remotion render src/index.ts Demo out/keepercard-demo.mp4 --concurrency 2 --browser-executable $HOME/.cache/ms-playwright/chromium-1243/chrome-linux64/chrome"
+    "render": "remotion render src/index.ts Demo out/keepercard-demo.mp4 --concurrency 1 --timeout 120000 --browser-executable $HOME/.cache/ms-playwright/chromium-1243/chrome-linux64/chrome"
   },
   "dependencies": {
     "@remotion/cli": "4.0.310",
