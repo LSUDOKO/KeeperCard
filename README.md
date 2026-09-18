@@ -225,6 +225,12 @@ payment → receipt anchor → the event watcher the chain started:
 
 ![KeeperHub runs table](docs/screenshots/keeperhub-runs-table.jpg)
 
+<img width="1906" height="937" alt="swappy-20260917-220134" src="https://github.com/user-attachments/assets/86e3fc47-69fd-4ce0-8f6b-a7379bd6fe1f" />
+<img width="1906" height="937" alt="swappy-20260917-220326" src="https://github.com/user-attachments/assets/587b2363-9686-45ec-9042-280e531031ee" />
+<img width="1908" height="936" alt="swappy-20260917-220427" src="https://github.com/user-attachments/assets/a7361d98-b239-492a-8a16-206332a80795" />
+<img width="1911" height="936" alt="swappy-20260917-220441" src="https://github.com/user-attachments/assets/6337bb2d-3c46-4837-9bbe-6d0e2ad7883e" />
+
+
 ### In KeeperCard's dashboard
 
 The card an agent spent from, and the [execution console](https://keepercard-dashboard.adoranto737.workers.dev/keeperhub)
