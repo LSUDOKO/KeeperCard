@@ -1,0 +1,26 @@
+name: Keep API awake
+
+# Render's free tier sleeps the API after ~15 minutes idle; the next request then pays a
+# 30-60s cold start, which is long enough to break Privy's embedded-wallet onboarding
+# (it gives up and reports a NetworkError). This ping keeps the instance warm.
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+jobs:
+  ping:
+    name: Ping /health
+    runs-on: ubuntu-latest
+    steps:
+      - name: curl the API health endpoint
+        run: |
+          set -e
+          code=$(curl -s -o /tmp/health.json -w "%{http_code}" --max-time 60 https://attestpay-api.onrender.com/health)
+          echo "HTTP $code"
+          cat /tmp/health.json
+          echo
+          if [ "$code" != "200" ]; then
+            echo "::warning::API health check returned $code"
+            exit 1
+          fi
