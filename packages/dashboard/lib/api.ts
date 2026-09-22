@@ -374,14 +374,44 @@ export type KeeperHubLog = {
   output: unknown;
 };
 
+// A raw fetch() rejection (connection refused, DNS blip, the browser's own
+// "NetworkError when attempting to fetch resource") surfaces as a TypeError, never as
+// an HTTP status - call() lets those propagate as-is. A real HTTP error response (4xx,
+// 5xx, our own RefusalError bodies) becomes a plain Error with a specific message
+// instead, so this check never mistakes "the server said no" for "we couldn't reach it".
+function isNetworkError(e: unknown): boolean {
+  return e instanceof TypeError || (e instanceof Error && e.message === "request timed out");
+}
+
+// Render's free tier spins the API down after ~15 min idle; the next request pays a cold
+// Docker boot that can outrun our own request timeout, so the very first call after a gap
+// can fail with a network error even though the server comes up seconds later. Retried
+// only for genuinely network-shaped failures, and only for calls that are safe to repeat
+// (onboard is a server-side upsert keyed on address - see POST /onboard).
+async function retryNetworkErrors<T>(fn: () => Promise<T>, attempts = 3, delaysMs = [1500, 4000]): Promise<T> {
+  for (let i = 0; ; i++) {
+    try {
+      return await fn();
+    } catch (e) {
+      if (i >= attempts - 1 || !isNetworkError(e)) throw e;
+      await new Promise((r) => setTimeout(r, delaysMs[i] ?? delaysMs.at(-1)));
+    }
+  }
+}
+
 export const api = {
   // --- Privy lane: onboard + client-signed issuance ---
-  // proof = personal_sign("attestpay-onboard:v1:<did>") · binds the wallet to THIS login
+  // proof = personal_sign("attestpay-onboard:v1:<did>") · binds the wallet to THIS login.
+  // Retried on a network-shaped failure (see retryNetworkErrors): the first request after
+  // the API's free-tier instance has been idle can race a cold start and fail even though
+  // the server would have answered a few seconds later.
   onboard: (address: string, auth7702: Wire7702Auth, proof: Hex) =>
-    call<{ user_id: string; address: string; revocation_nonce: string; has_auth7702: boolean }>("/onboard", {
-      method: "POST",
-      body: JSON.stringify({ address, auth7702, proof }),
-    }),
+    retryNetworkErrors(() =>
+      call<{ user_id: string; address: string; revocation_nonce: string; has_auth7702: boolean }>("/onboard", {
+        method: "POST",
+        body: JSON.stringify({ address, auth7702, proof }),
+      }),
+    ),
   prepareCard: (name: string, terms: CardTermsInput, userAddress: string) =>
     call<{ prepare_id: string; chain_id: number; k_agent_address: string; delegation: WireDelegation }>("/cards/prepare", {
       method: "POST",
@@ -403,7 +433,10 @@ export const api = {
 
   // --- reads + server-side controls (scoped to the embedded-wallet userId) ---
   tree: (userId: string) => call<{ tree: TreeNode[] }>(`/tree?userId=${encodeURIComponent(userId)}`),
-  cards: () => call<CardState[]>("/cards"),
+  // A plain read: retried on the same cold-start race as onboard() (see there), since
+  // this is the very first call the boot sequence makes and most likely to hit a
+  // just-woken instance.
+  cards: () => retryNetworkErrors(() => call<CardState[]>("/cards")),
   card: (id: string) => call<CardState & { charges: Charge[]; k_agent_address: string }>(`/cards/${id}`),
   url: (id: string) => call<{ card_url: string }>(`/cards/${id}/url`),
   fiatCard: (id: string) => call<FiatCard>(`/cards/${id}/fiat`),
