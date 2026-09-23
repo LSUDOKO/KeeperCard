@@ -9,9 +9,11 @@
 import { createPublicClient, http, type Address } from "viem";
 import { base, baseSepolia } from "viem/chains";
 
-export const PRIVY_APP_ID = process.env.NEXT_PUBLIC_PRIVY_APP_ID ?? "cmq14zjut00040cjv4fgj82vd";
-export const PRIVY_CLIENT_ID =
-  process.env.NEXT_PUBLIC_PRIVY_CLIENT_ID ?? "client-WY6aErb7JSTTnL52yVH5tufA1xn1nLNvN1oBwKrNMEyfF";
+export const PRIVY_APP_ID = process.env.NEXT_PUBLIC_PRIVY_APP_ID ?? "cmuco1zd003ob0bkwkxy5yke4";
+// Optional in @privy-io/react-auth v3. Left undefined unless explicitly configured:
+// a client id belonging to a DIFFERENT app is worse than none, and the app id alone
+// is enough for the embedded-wallet lane.
+export const PRIVY_CLIENT_ID = process.env.NEXT_PUBLIC_PRIVY_CLIENT_ID || undefined;
 
 const CHAINS = {
   8453: {
